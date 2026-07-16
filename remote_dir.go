@@ -3,6 +3,7 @@ package main
 import (
 	"iter"
 	"os"
+	"path/filepath"
 
 	"github.com/studio-b12/gowebdav"
 )
@@ -14,6 +15,19 @@ type RemoteDir struct {
 type RemoteFile struct {
 	Path string
 	Data []byte
+}
+
+func (r *RemoteFile) Name() string {
+	name := filepath.Base(r.Path)
+	return name
+}
+
+func (r *RemoteFile) Content() []byte {
+	return r.Data
+}
+
+func (r *RemoteFile) Ext() string {
+	return filepath.Ext(r.Path)
 }
 
 func NewRemoteDir(user, pass, endpoint string) (*RemoteDir, error) {
