@@ -1,2 +1,4 @@
 github.com/studio-b12/gowebdav v0.12.0 h1:kFRtQECt8jmVAvA6RHBz3geXUGJHUZA6/IKpOVUs5kM=
 github.com/studio-b12/gowebdav v0.12.0/go.mod h1:bHA7t77X/QFExdeAnDzK6vKM34kEZAcE1OX4MfiwjkE=
+google.golang.org/adk/v2 v2.0.0 h1:7eRbsnv0XkQPVctf8qtQ+KuO8XjkBrMNxznY6OA/sTs=
+google.golang.org/adk/v2 v2.0.0/go.mod h1:fPuMPT5s3LsWu97mdeFjTPZu/02tIALWRWeqHL2FWKE=

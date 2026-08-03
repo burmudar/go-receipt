@@ -2,18 +2,35 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"google.golang.org/adk/v2/agent/agent"
+	"google.golang.org/adk/v2/model"
 )
+
+type OpenAIModel struct {
+}
+
+func (m *OpenAIModel) GenerateContent(ctx context.Context) {
+}
+
+var _ model.LLM = &OpenAIModel{}
 
 type LLMOCRScanner struct {
 	client   *http.Client
 	token    string
 	endpoint string
+}
+
+type ReceiptAgent struct {
+	token string
+	agent agent.Agent
 }
 
 type LLMRequest struct {
@@ -24,6 +41,7 @@ type LLMRequest struct {
 type OCRResult struct{}
 
 func (l *LLMOCRScanner) Scan(file *RemoteFile) (*OCRResult, error) {
+
 	llmReq := LLMRequest{
 		Model: "gpt-5.5",
 		Input: []Turn{
