@@ -23,10 +23,14 @@
       devShells = forAllSystems (system:
         let
           pkgs = nixpkgsFor.${system};
+          gooseBin = pkgs.writeShellScriptBin "goose" ''
+            ${pkgs.go}/bin/go tool goose "$@"
+          '';
           baseDeps = with pkgs; [
             # define dependencies here
             go
             gopls
+            gooseBin
           ];
         in
         {
