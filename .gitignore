@@ -1,3 +1,5 @@
 .direnv/
 .storage-password
 .openai-password
+.xero-oauth
+app.db
