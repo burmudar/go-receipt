@@ -1,0 +1,4 @@
+Implement Xero OAuth
+
+- add command `oauth login` which starts the xero oauth flow
+- save oauth token in oauth_token table

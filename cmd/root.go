@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/burmudar/go-receipt/cmd/oauthcli"
+	"github.com/burmudar/go-receipt/cmd/scancli"
 	"github.com/spf13/cobra"
 )
 
@@ -27,5 +28,5 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.AddCommand(oauthcli.Cmd())
+	rootCmd.AddCommand(oauthcli.Cmd(), scancli.Cmd())
 }

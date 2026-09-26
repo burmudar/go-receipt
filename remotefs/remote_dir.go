@@ -1,4 +1,4 @@
-package main
+package remotefs
 
 import (
 	"crypto/sha256"
@@ -9,45 +9,45 @@ import (
 	"github.com/studio-b12/gowebdav"
 )
 
-type RemoteDir struct {
+type Dir struct {
 	client *gowebdav.Client
 }
 
-type RemoteFile struct {
+type File struct {
 	Path string
 	Data []byte
 }
 
-func (r *RemoteFile) Name() string {
+func (r *File) Name() string {
 	name := filepath.Base(r.Path)
 	return name
 }
 
-func (r *RemoteFile) Content() []byte {
+func (r *File) Content() []byte {
 	return r.Data
 }
 
-func (r *RemoteFile) SHA() [32]byte {
+func (r *File) SHA() [32]byte {
 	return sha256.Sum256(r.Data)
 }
 
-func (r *RemoteFile) Ext() string {
+func (r *File) Ext() string {
 	return filepath.Ext(r.Path)
 }
 
-func NewRemoteDir(user, pass, endpoint string) (*RemoteDir, error) {
+func NewDir(user, pass, endpoint string) (*Dir, error) {
 	client := gowebdav.NewClient(endpoint, user, pass)
 
 	if err := client.Connect(); err != nil {
 		return nil, err
 	}
 
-	return &RemoteDir{
+	return &Dir{
 		client: client,
 	}, nil
 }
 
-func (r *RemoteDir) List(path string) iter.Seq2[os.FileInfo, error] {
+func (r *Dir) List(path string) iter.Seq2[os.FileInfo, error] {
 	return func(yield func(os.FileInfo, error) bool) {
 		files, err := r.client.ReadDir(path)
 		for _, f := range files {
@@ -58,19 +58,19 @@ func (r *RemoteDir) List(path string) iter.Seq2[os.FileInfo, error] {
 	}
 }
 
-func (r *RemoteDir) Download(path string) (*RemoteFile, error) {
+func (r *Dir) Download(path string) (*File, error) {
 	data, err := r.client.Read(path)
 	if err != nil {
 		return nil, err
 	}
 
-	return &RemoteFile{
+	return &File{
 		Path: path,
 		Data: data,
 	}, nil
 
 }
 
-func (r *RemoteDir) Delete(path string) error {
+func (r *Dir) Delete(path string) error {
 	return r.client.Remove(path)
 }
