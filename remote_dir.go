@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"iter"
 	"os"
 	"path/filepath"
@@ -24,6 +25,10 @@ func (r *RemoteFile) Name() string {
 
 func (r *RemoteFile) Content() []byte {
 	return r.Data
+}
+
+func (r *RemoteFile) SHA() [32]byte {
+	return sha256.Sum256(r.Data)
 }
 
 func (r *RemoteFile) Ext() string {
