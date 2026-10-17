@@ -59,6 +59,8 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** The application can maintain a Xero connection and retrieve supported attachment targets.
 
+**Status:** Implemented with controlled Xero endpoints and real SQLite. The CLI supports OAuth login, organisation selection, durable token refresh, and paginated target snapshots. Supported targets are spend-money bank transactions and purchase bills. Live Xero consent, token refresh, and transaction retrieval remain unverified. See [docs/xero.md](docs/xero.md) for API constraints, test results, and the live validation checklist.
+
 ### Work
 
 - Confirm the target Xero record types, API permissions, and attachment constraints.
@@ -70,11 +72,11 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 ### Done when
 
-- [ ] A user can connect the intended Xero organisation.
-- [ ] The connection survives an application restart and access-token expiry.
+- [ ] A user can connect the intended Xero organisation (controlled login and selection pass; live consent remains unverified).
+- [x] The connection survives an application restart and access-token expiry (controlled endpoint test).
 - [ ] The application can retrieve real transactions from that organisation.
-- [ ] A revoked connection produces a clear reconnect requirement.
-- [ ] Supported attachment targets and the boundary with accounting reconciliation are documented.
+- [x] A revoked connection produces a clear reconnect requirement (controlled endpoint test).
+- [x] Supported attachment targets and the boundary with accounting reconciliation are documented.
 
 ## Milestone 3: Service and manual review UI
 
