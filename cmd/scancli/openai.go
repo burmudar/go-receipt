@@ -35,6 +35,7 @@ func NewReceiptScanner(token, model string) (*ReceiptScanner, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &ReceiptScanner{
 		client:       openai.NewClient(option.WithAPIKey(token)),
 		resultSchema: schema,
@@ -48,26 +49,31 @@ func GenerateSchema[T any]() (map[string]any, error) {
 		AllowAdditionalProperties: false,
 		DoNotReference:            true,
 	}
+
 	var v T
 	data, err := json.Marshal(reflector.Reflect(v))
 	if err != nil {
 		return nil, err
 	}
+
 	// Preserve schema values as raw JSON so integer constraints are not rounded
 	// through float64 before the SDK serializes the request.
 	var rawSchema map[string]json.RawMessage
 	if err := json.Unmarshal(data, &rawSchema); err != nil {
 		return nil, err
 	}
+
 	result := make(map[string]any, len(rawSchema))
 	for key, value := range rawSchema {
 		result[key] = value
 	}
+
 	return result, nil
 }
 
 func (r *ReceiptScanner) Scan(ctx context.Context, file receipt.File) (receipt.Analysis, error) {
 	var analysis receipt.Analysis
+
 	content := responses.ResponseInputContentUnionParam{}
 	mimeType := http.DetectContentType(file.Data)
 	dataURL := fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(file.Data))
@@ -111,14 +117,18 @@ func (r *ReceiptScanner) Scan(ctx context.Context, file receipt.File) (receipt.A
 	if err != nil {
 		return analysis, fmt.Errorf("extract receipt: %w", err)
 	}
+
 	if resp.Error.Message != "" {
 		return analysis, fmt.Errorf("extract receipt: %s", resp.Error.Message)
 	}
+
 	if resp.Status != "completed" || strings.TrimSpace(resp.OutputText()) == "" {
 		return analysis, fmt.Errorf("extraction did not return a complete result (status %q)", resp.Status)
 	}
+
 	if err := json.Unmarshal([]byte(resp.OutputText()), &analysis); err != nil {
 		return analysis, fmt.Errorf("decode extraction: %w", err)
 	}
+
 	return analysis, nil
 }

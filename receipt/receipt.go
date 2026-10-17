@@ -41,9 +41,11 @@ func (a Analysis) Validate() error {
 		return fmt.Errorf("currency must be a three-letter uppercase code")
 	case a.Date.IsZero():
 		return fmt.Errorf("receipt date is required")
-	case math.IsNaN(a.Confidence) || math.IsInf(a.Confidence, 0) || a.Confidence < 0 || a.Confidence > 1:
+	case math.IsNaN(a.Confidence) || math.IsInf(a.Confidence, 0) ||
+		a.Confidence < 0 || a.Confidence > 1:
 		return fmt.Errorf("confidence must be between zero and one")
 	}
+
 	return nil
 }
 
