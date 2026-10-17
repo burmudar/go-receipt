@@ -150,7 +150,10 @@ func webDAVFiles(ctx context.Context, endpoint, user, password, inbox string) (i
 			}
 
 			remotePath := path.Join(inbox, info.Name())
-			source := u.JoinPath(remotePath).String()
+			// JoinPath expects escaped path elements. Receipt names are decoded
+			// by the WebDAV client, so escape literal percent signs first.
+			relativeURL := &url.URL{Path: remotePath}
+			source := u.JoinPath(relativeURL.EscapedPath()).String()
 			file, err := dir.Download(remotePath)
 			r := receipt.File{
 				Name:   info.Name(),
