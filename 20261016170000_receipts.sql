@@ -3,7 +3,6 @@ CREATE TABLE receipt (
   sha256 TEXT PRIMARY KEY NOT NULL,
   name TEXT NOT NULL,
   source TEXT NOT NULL,
-  original BLOB NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'extracted', 'failed')),
   analysis TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,

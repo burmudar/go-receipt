@@ -6,6 +6,11 @@ import (
 	"fmt"
 )
 
+// Source reads the original bytes from a persisted intake location.
+type Source interface {
+	Read(context.Context, string) ([]byte, error)
+}
+
 type Scanner interface {
 	Scan(context.Context, File) (Analysis, error)
 }
@@ -16,11 +21,11 @@ type Progress struct {
 	Skipped   int `json:"skipped"`
 }
 
-// Process extracts saved receipts without contacting their original source.
+// Process extracts receipts by reading and verifying their retained source files.
 // Normal runs process pending records. Explicit retries also include failures.
 // An interrupted pending record remains eligible for the next run. Run only one
 // processor per database until worker coordination is introduced.
-func (s *Store) Process(ctx context.Context, scanner Scanner, retryFailed bool) (Progress, error) {
+func (s *Store) Process(ctx context.Context, source Source, scanner Scanner, retryFailed bool) (Progress, error) {
 	var progress Progress
 	records, err := s.List(ctx)
 	if err != nil {
@@ -38,19 +43,11 @@ func (s *Store) Process(ctx context.Context, scanner Scanner, retryFailed bool) 
 			continue
 		}
 
-		file, err := s.Original(ctx, r.SHA256)
-		if err != nil {
-			return progress, fmt.Errorf("load receipt %s: %w", r.SHA256, err)
-		}
-
 		if err := s.startAttempt(ctx, r.SHA256); err != nil {
 			return progress, err
 		}
 
-		analysis, scanErr := scanner.Scan(ctx, file)
-		if scanErr == nil {
-			scanErr = analysis.Validate()
-		}
+		analysis, scanErr := extract(ctx, source, scanner, r)
 
 		if err := s.finish(ctx, r.SHA256, analysis, scanErr); err != nil {
 			return progress, fmt.Errorf("save receipt %s: %w", r.SHA256, err)
@@ -65,4 +62,27 @@ func (s *Store) Process(ctx context.Context, scanner Scanner, retryFailed bool) 
 	}
 
 	return progress, errors.Join(failures...)
+}
+
+func extract(ctx context.Context, source Source, scanner Scanner, record Record) (Analysis, error) {
+	data, err := source.Read(ctx, record.Source)
+	if err != nil {
+		return Analysis{}, fmt.Errorf("read source %s: %w", record.Source, err)
+	}
+
+	file := File{
+		Name:   record.Name,
+		Source: record.Source,
+		Data:   data,
+	}
+	if file.SHA256() != record.SHA256 {
+		return Analysis{}, fmt.Errorf("source content changed: restore the original receipt before retrying")
+	}
+
+	analysis, err := scanner.Scan(ctx, file)
+	if err != nil {
+		return Analysis{}, err
+	}
+
+	return analysis, analysis.Validate()
 }

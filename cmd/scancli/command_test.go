@@ -22,7 +22,7 @@ import (
 
 // Exercise the public CLI with real SQLite and a controlled extraction endpoint.
 // Each invocation opens a new connection, as it would after a process restart.
-func TestScanPersistsAndRetriesWithoutSource(t *testing.T) {
+func TestScanPersistsAndRetriesFromRetainedSource(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	database := filepath.Join(dir, "receipts.db")
@@ -226,11 +226,35 @@ func TestScanPersistsAndRetriesWithoutSource(t *testing.T) {
 		t.Fatal("duplicate scan repeated extraction without an explicit retry")
 	}
 
-	if err := os.RemoveAll(inbox); err != nil {
+	pdfPath := filepath.Join(inbox, "receipt.pdf")
+	if err := os.WriteFile(pdfPath, []byte("%PDF-1.4\nchanged receipt\n%%EOF"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run("retry"); err == nil || !strings.Contains(err.Error(), "source content changed") {
+		t.Fatalf("retry must reject changed source content: %v", err)
+	}
+	if r := list()["receipt.pdf"]; r.Status != receipt.Failed || !strings.Contains(r.LastError, "source content changed") {
+		t.Fatalf("source mismatch was not saved as a failure: %+v", r)
+	}
+
+	if err := os.Remove(pdfPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run("retry"); err == nil {
+		t.Fatal("retry must fail when the source is unavailable")
+	}
+	if r := list()["receipt.pdf"]; r.Status != receipt.Failed || !strings.Contains(r.LastError, "read source") {
+		t.Fatalf("source read failure was not saved: %+v", r)
+	}
+	if images.Load() != 1 || pdfs.Load() != 1 {
+		t.Fatal("source failures must not contact the extraction endpoint")
+	}
+
+	if err := os.WriteFile(pdfPath, originals["receipt.pdf"], 0600); err != nil {
 		t.Fatal(err)
 	}
 	if output, err := run("retry"); err != nil {
-		t.Fatalf("retry without source: %s: %v", output, err)
+		t.Fatalf("retry from restored source: %s: %v", output, err)
 	}
 	if images.Load() != 1 || pdfs.Load() != 2 {
 		t.Fatal("retry must extract only the failed receipt")
@@ -242,23 +266,36 @@ func TestScanPersistsAndRetriesWithoutSource(t *testing.T) {
 	}
 	defer conn.Close()
 
+	var blobColumns int
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('receipt') WHERE type = 'BLOB'`).Scan(&blobColumns); err != nil {
+		t.Fatal(err)
+	}
+	if blobColumns != 0 {
+		t.Fatal("receipt storage must not contain original file bytes")
+	}
+
 	store := receipt.NewStore(conn)
 	for name, r := range list() {
 		if r.SHA256 != records[name].SHA256 ||
 			r.Status != receipt.Extracted ||
 			r.LastError != "" ||
 			r.ExtractedAt == nil ||
+			r.Analysis == nil ||
 			r.Analysis.Total != "9007199254740993.01" {
 			t.Fatalf("retry did not preserve a successful extraction: %+v", r)
 		}
 
-		file, err := store.Original(ctx, r.SHA256)
-		if err != nil || !bytes.Equal(file.Data, originals[name]) {
-			t.Fatalf("original not preserved for %s: %v", name, err)
+		data, err := os.ReadFile(r.Source)
+		if err != nil || !bytes.Equal(data, originals[name]) {
+			t.Fatalf("intake file not retained for %s: %v", name, err)
 		}
 
 		// A second transport uses the same hash identity and must not reset state.
-		file.Source = "https://example.invalid/inbox/" + name
+		file := receipt.File{
+			Name:   name,
+			Source: "https://example.invalid/inbox/" + name,
+			Data:   data,
+		}
 		if _, added, err := store.Import(ctx, file); err != nil || added {
 			t.Fatalf("same content from another source was not deduplicated: added=%v, err=%v", added, err)
 		}

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Run a service that reads receipts from WebDAV, extracts structured data, matches receipts to Xero transactions, and uploads approved receipt attachments. Provide a UI that shows completed work and items that need manual review.
+Run a service that reads receipts from WebDAV or a local directory, extracts structured data, matches receipts to Xero transactions, and uploads approved receipt attachments. Archive completed receipts in Paperless-ngx with tags and final metadata. Remove intake files only after both attachment and archiving are confirmed. Provide a UI that shows completed work and items that need manual review.
 
 Start with manual approval for every attachment. Add automatic approval only after the manual workflow is reliable.
 
@@ -22,7 +22,10 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - Before implementing Xero transaction access, confirm which Xero record types are attachment targets and which operations the API supports.
 - Keep extraction confidence separate from match confidence. Accurate extraction does not establish a correct transaction match.
 - Use one Go service with SQLite and a simple web UI initially. Separate deployments are not required for the first version.
-- Keep Paperless integration outside the first end-to-end workflow.
+- WebDAV or the local directory holds original receipts during processing. Files remain at their intake locations until processing is complete. SQLite stores hashes, source references, extracted data, and workflow state, not file bytes. No separate staging directory is required.
+- Paperless-ngx holds the completed archive. Upload to Paperless after the Xero attachment succeeds, not during initial import. Include final receipt tags and metadata.
+- Track Xero attachment, Paperless consumption, and intake cleanup separately. Remove the intake file only after both remote operations are confirmed and the file still matches the processed hash. An archive retry must not repeat a successful Xero attachment.
+- Keep unmatched and pending receipts in the intake. Ignored receipts need an explicit retention decision before cleanup.
 - Use a local receipt folder while WebDAV is unavailable. Local and WebDAV input must use the same extraction, persistence, review, and attachment workflow.
 - Do not block milestones 1–5 on WebDAV access. Live WebDAV validation remains required before claiming the WebDAV deployment is ready.
 
@@ -30,7 +33,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** Each discovered receipt has a durable record that survives a restart.
 
-**Status:** Implemented for local input. The CLI regression test uses real SQLite and a controlled OpenAI endpoint. Live OpenAI and WebDAV validation remain unverified. The database stores original receipt bytes, so retries do not require source access.
+**Status:** Implemented for local input. The CLI regression test uses real SQLite and a controlled OpenAI endpoint. Live OpenAI and WebDAV validation remain unverified. The database stores source references and hashes, not receipt bytes. Retries read retained intake files and verify their content hashes before extraction.
 
 ### Work
 
@@ -39,7 +42,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - Replace hard-coded connection settings with configuration. Return actionable errors instead of panicking or silently ignoring failures.
 - Persist receipt identity, source location, extraction results, processing status, timestamps, and errors.
 - Use the content hash to detect receipts already imported.
-- Preserve access to the original receipt for preview and attachment upload.
+- Retain original receipts in the intake for retries, preview, and attachment upload. Record missing or changed source files as failures. Do not delete intake files in this milestone.
 - Remove the temporary three-receipt limit. Record failures per receipt so one failure does not stop the whole batch.
 - Validate extracted data before it becomes eligible for matching. Use an exact representation for monetary amounts.
 
@@ -48,7 +51,8 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - [x] Receipts from a local folder can be imported and extracted without a WebDAV connection (controlled extraction endpoint).
 - [x] Importing the same local folder twice does not create duplicate receipt records or repeat successful extraction.
 - [x] A restart preserves extracted data and processing status.
-- [x] An extraction failure is visible and can be retried without losing the receipt.
+- [x] An extraction failure is visible and can be retried from the retained source file.
+- [x] Missing or changed source files fail before extraction. Restoring the original permits a retry.
 - [x] `go test ./...` passes.
 
 ## Milestone 2: Xero connection and transaction access
@@ -83,7 +87,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - Allow corrections to extracted fields while retaining the original extraction result.
 - Allow transaction search and manual selection within the connected organisation.
 - Persist approval, rejection, and ignore decisions with timestamps and an audit history.
-- Separate needs-review, unmatched, approved, completed, ignored, and failed items in the UI. Approved must not mean uploaded.
+- Separate needs-review, unmatched, approved, completed, ignored, and failed items in the UI. Approved must not mean uploaded. Show Xero attachment, Paperless archive, and intake cleanup progress separately.
 - Protect UI access according to the deployment environment before exposing financial data.
 
 ### Done when
@@ -92,26 +96,33 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - [ ] The user can inspect a receipt, correct its data, and approve a transaction link.
 - [ ] An unmatched receipt can remain pending or be ignored with a recorded decision.
 - [ ] A restart preserves decisions and does not repeat completed work.
-- [ ] Approved receipts remain visibly pending until attachment upload succeeds.
+- [ ] Approved receipts remain visibly pending until attachment upload succeeds. Attached receipts remain incomplete until Paperless archiving and intake cleanup finish.
 
-## Milestone 4: Confirmed Xero attachment upload
+## Milestone 4: Xero attachment, Paperless archive, and intake cleanup
 
-**Outcome:** An approved receipt is attached to the selected Xero transaction, with a durable completion record.
+**Outcome:** An approved receipt is attached to the selected Xero transaction, archived in Paperless, and safely removed from the intake. Each step has a durable completion record.
 
 ### Work
 
-- Upload the original receipt to the approved Xero target.
+- Read the original from the intake and verify its hash before uploading to the approved Xero target.
 - Record the target identifier, attachment identifier where available, upload result, and completion time.
 - Make upload retries safe. Check for an existing attachment when a timeout leaves the result uncertain.
-- Show pending uploads, failures, and confirmed completion separately.
+- After confirmed Xero attachment, upload the original to Paperless with receipt tags, corrected metadata, and useful transaction references.
+- Persist the Paperless task reference. Wait for successful consumption and save the document reference; upload acceptance alone is not archive confirmation.
+- Handle uncertain Paperless uploads without blindly submitting another copy. Resume only incomplete steps after an error or restart.
+- Remove the intake file only after confirmed Xero attachment and Paperless archiving. Verify that the file still matches the processed hash and prevent deletion of a replacement file. Record cleanup progress separately.
+- Show pending uploads, pending archives, pending cleanup, failures, and confirmed completion separately.
 - Provide a link to the Xero record where supported.
 - Prevent changes to an approved target from silently causing an additional upload. Require an explicit follow-up decision.
 
 ### Done when
 
-- [ ] One receipt completes the full path from local folder import to manual approval and confirmed Xero attachment.
+- [ ] One receipt completes the full path from local folder import through manual approval, confirmed Xero attachment, confirmed Paperless archive, and intake cleanup.
 - [ ] The attachment is visible on the intended Xero record.
-- [ ] A retry or restart does not create a duplicate attachment.
+- [ ] A retry or restart does not create a duplicate attachment or archive document.
+- [ ] A failed Paperless archive leaves the intake file intact and does not repeat the confirmed Xero upload.
+- [ ] Paperless contains the original receipt with final tags and metadata before intake cleanup.
+- [ ] Cleanup cannot remove an unarchived receipt or a replacement file. Unmatched and pending receipts remain in the intake.
 - [ ] The UI shows what was approved, what was uploaded, and what still needs attention.
 - [ ] Attachment completion is not labelled as accounting reconciliation unless that status is separately verified.
 
@@ -145,14 +156,14 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - Add bounded retries, backoff, request timeouts, and graceful shutdown.
 - Recover interrupted jobs without repeating confirmed side effects.
 - Show worker health, last successful import, Xero connection status, and unresolved failures.
-- Document deployment, configuration, backups, and restore procedures for the database and receipt files.
+- Document deployment, configuration, backups, and restore procedures for SQLite, the intake files, and the Paperless archive.
 - Define and validate a conservative automatic-approval policy using reviewed receipts before enabling it.
 - Keep automatic approval disabled by default. Record whether each approval was manual or automatic and which policy applied.
 - Provide a way to pause automatic processing without losing pending work.
 
 ### Done when
 
-- [ ] The service recovers from restarts and temporary receipt-source, OpenAI, and Xero failures. Live WebDAV checks remain separate until access is restored.
+- [ ] The service recovers from restarts and temporary receipt-source, OpenAI, Xero, and Paperless failures. Live WebDAV checks remain separate until access is restored.
 - [ ] A backup can restore receipt records, decisions, and access to original files.
 - [ ] The user can see all items that need intervention without reading logs.
 - [ ] If automatic approval is enabled, only eligible, unambiguous matches proceed automatically.
@@ -165,15 +176,15 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - [ ] Validate authentication, inbox listing, and receipt downloads against the live service.
 - [ ] Confirm WebDAV receipts use the same processing workflow as local receipts.
 - [ ] Confirm a receipt already imported locally is not duplicated or extracted again when discovered through WebDAV.
-- [ ] Complete the WebDAV-to-Xero workflow with a controlled receipt.
+- [ ] Complete the WebDAV-to-Xero-to-Paperless workflow with a controlled receipt, including safe intake cleanup.
 - [ ] Confirm connection failures are visible and processing resumes safely after access returns.
 
 Do not mark these checks complete based on local-folder tests alone.
 
 ## Delivery order
 
-Implement milestones 1–4 in order. Complete one manually approved receipt attachment before adding matching automation. Add milestone 5 to reduce review effort. Use milestone 6 to prepare for unattended operation; basic access protection, secret handling, and safe uploads are required earlier, not deferred to this milestone.
+Implement milestones 1–4 in order. Complete one manually approved receipt attachment, Paperless archive, and intake cleanup before adding matching automation. Add milestone 5 to reduce review effort. Use milestone 6 to prepare for unattended operation; basic access protection, secret handling, and safe uploads are required earlier, not deferred to this milestone.
 
 ## Validation approach
 
-Run existing checks before each change. Add focused regression coverage for changed behavior where coverage is missing. Use controlled local receipt files while WebDAV is unavailable. Validate OpenAI and Xero separately with appropriate credentials and an appropriate Xero organisation. Record live WebDAV validation as blocked until access is restored. Record actual commands and observed results for each milestone. Do not treat a successful compile as proof of a working external integration.
+Run existing checks before each change. Add focused regression coverage for changed behavior where coverage is missing. Use controlled local receipt files while WebDAV is unavailable. Validate OpenAI, Xero, and Paperless separately with appropriate credentials and an appropriate Xero organisation. Record live WebDAV validation as blocked until access is restored. Record actual commands and observed results for each milestone. Do not treat a successful compile as proof of a working external integration.

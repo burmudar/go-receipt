@@ -1,7 +1,9 @@
-// Package receipt persists source documents and their extraction lifecycle.
+// Package receipt persists receipt metadata and the extraction lifecycle.
 package receipt
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"regexp"
@@ -14,6 +16,12 @@ type File struct {
 	Name   string
 	Source string
 	Data   []byte
+}
+
+// SHA256 identifies the file contents independently of their source location.
+func (f File) SHA256() string {
+	sum := sha256.Sum256(f.Data)
+	return hex.EncodeToString(sum[:])
 }
 
 // Analysis uses a decimal string for Total so no monetary value passes through
@@ -55,8 +63,8 @@ const (
 	Failed    = "failed"
 )
 
-// Record omits original file bytes. Original files remain in SQLite for retries
-// and later preview or attachment upload.
+// Record stores metadata, not file bytes. Originals remain at Source until Xero
+// attachment and Paperless archiving are confirmed.
 type Record struct {
 	SHA256      string     `json:"sha256"`
 	Name        string     `json:"name"`

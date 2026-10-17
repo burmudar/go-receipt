@@ -2,9 +2,7 @@ package receipt
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 )
@@ -17,20 +15,20 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-// Import atomically preserves the original bytes and their first source location.
-// Content identity is shared by all input sources. Existing records are unchanged.
+// Import records the content hash and first source location without copying the
+// original bytes. Content identity is shared by all input sources. Existing
+// records are unchanged.
 func (s *Store) Import(ctx context.Context, file File) (hash string, added bool, err error) {
 	if len(file.Data) == 0 {
 		return "", false, fmt.Errorf("receipt is empty")
 	}
-	sum := sha256.Sum256(file.Data)
-	hash = hex.EncodeToString(sum[:])
+	hash = file.SHA256()
 
 	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO receipt (sha256, name, source, original)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO receipt (sha256, name, source)
+		VALUES (?, ?, ?)
 		ON CONFLICT (sha256) DO NOTHING
-	`, hash, file.Name, file.Source, file.Data)
+	`, hash, file.Name, file.Source)
 	if err != nil {
 		return "", false, err
 	}
@@ -85,16 +83,6 @@ func (s *Store) List(ctx context.Context) ([]Record, error) {
 	}
 
 	return records, rows.Err()
-}
-
-func (s *Store) Original(ctx context.Context, hash string) (File, error) {
-	var f File
-	err := s.db.QueryRowContext(ctx, `
-		SELECT name, source, original
-		FROM receipt
-		WHERE sha256 = ?
-	`, hash).Scan(&f.Name, &f.Source, &f.Data)
-	return f, err
 }
 
 func (s *Store) startAttempt(ctx context.Context, hash string) error {

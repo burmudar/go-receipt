@@ -8,13 +8,14 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/burmudar/go-receipt/receipt"
 	"github.com/burmudar/go-receipt/remotefs"
 )
 
-// Both input adapters yield the same receipt type. Processing and retries do not
-// need to know which adapter supplied the original bytes.
+// Both input adapters yield the same receipt type. SQLite stores their source
+// locations and hashes; the intake retains the original files.
 func localFiles(ctx context.Context, dir string) (iter.Seq2[receipt.File, error], error) {
 	absolute, err := filepath.Abs(dir)
 	if err != nil {
@@ -52,7 +53,63 @@ func localFiles(ctx context.Context, dir string) (iter.Seq2[receipt.File, error]
 	}, nil
 }
 
-func webDAVFiles(ctx context.Context, endpoint, user, password, inbox string) (iter.Seq2[receipt.File, error], error) {
+// sourceReader reloads persisted source locations. WebDAV credentials are only
+// sent to the configured endpoint, never to an arbitrary URL from the database.
+type sourceReader struct {
+	config config
+	remote *remotefs.Dir
+}
+
+func (r *sourceReader) Read(ctx context.Context, location string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if filepath.IsAbs(location) {
+		return os.ReadFile(location)
+	}
+
+	source, err := parseWebDAVURL(location)
+	if err != nil {
+		return nil, err
+	}
+
+	if r.config.endpoint == "" || r.config.user == "" {
+		return nil, fmt.Errorf("set --webdav-url and --webdav-user to read this source")
+	}
+
+	endpoint, err := parseWebDAVURL(r.config.endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	basePath := strings.TrimRight(endpoint.Path, "/") + "/"
+	remotePath, matchesPath := strings.CutPrefix(source.Path, basePath)
+	if source.Scheme != endpoint.Scheme || source.Host != endpoint.Host || !matchesPath {
+		return nil, fmt.Errorf("receipt source is outside the configured WebDAV endpoint")
+	}
+
+	if r.remote == nil {
+		password, err := secret("WEBDAV_PASSWORD", r.config.passwordFile)
+		if err != nil {
+			return nil, err
+		}
+
+		r.remote, err = remotefs.NewDir(r.config.user, password, r.config.endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("connect to WebDAV: %w", err)
+		}
+	}
+
+	file, err := r.remote.Download(remotePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return file.Data, nil
+}
+
+func parseWebDAVURL(endpoint string) (*url.URL, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil ||
 		u.Host == "" ||
@@ -61,6 +118,15 @@ func webDAVFiles(ctx context.Context, endpoint, user, password, inbox string) (i
 		u.RawQuery != "" ||
 		u.Fragment != "" {
 		return nil, fmt.Errorf("WebDAV URL must be an HTTP(S) URL without credentials, query, or fragment")
+	}
+
+	return u, nil
+}
+
+func webDAVFiles(ctx context.Context, endpoint, user, password, inbox string) (iter.Seq2[receipt.File, error], error) {
+	u, err := parseWebDAVURL(endpoint)
+	if err != nil {
+		return nil, err
 	}
 
 	dir, err := remotefs.NewDir(user, password, endpoint)

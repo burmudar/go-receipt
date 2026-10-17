@@ -49,16 +49,17 @@ func Cmd() *cobra.Command {
 	persistentFlags.StringVar(&cfg.model, "model", "gpt-5.5", "OpenAI extraction model")
 	persistentFlags.DurationVar(&cfg.timeout, "timeout", 2*time.Minute, "Timeout per receipt extraction")
 
-	flags := cmd.Flags()
-	flags.StringVar(&cfg.folder, "dir", "", "Local receipt folder (top-level regular files only)")
-	flags.StringVar(&cfg.endpoint, "webdav-url", "", "WebDAV server URL")
-	flags.StringVar(&cfg.user, "webdav-user", "", "WebDAV username")
-	flags.StringVar(
+	persistentFlags.StringVar(&cfg.endpoint, "webdav-url", "", "WebDAV server URL")
+	persistentFlags.StringVar(&cfg.user, "webdav-user", "", "WebDAV username")
+	persistentFlags.StringVar(
 		&cfg.passwordFile, "webdav-password-file", ".storage-password",
 		"WebDAV password file; WEBDAV_PASSWORD takes precedence",
 	)
+
+	flags := cmd.Flags()
+	flags.StringVar(&cfg.folder, "dir", "", "Local receipt folder (top-level regular files only)")
 	flags.StringVar(&cfg.inbox, "webdav-inbox", "inbox", "WebDAV inbox path")
-	flags.BoolVar(&cfg.importOnly, "import-only", false, "Save originals without contacting OpenAI")
+	flags.BoolVar(&cfg.importOnly, "import-only", false, "Record source locations and hashes without contacting OpenAI")
 	cmd.MarkFlagsMutuallyExclusive("dir", "webdav-url")
 
 	listCmd := &cobra.Command{
@@ -83,7 +84,7 @@ func Cmd() *cobra.Command {
 
 	retryCmd := &cobra.Command{
 		Use:   "retry",
-		Short: "Process pending and failed receipts from saved originals, without source access",
+		Short: "Process pending and failed receipts from their retained intake files",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cfg.run(cmd, true)
@@ -189,10 +190,12 @@ func (c config) run(cmd *cobra.Command, retry bool) error {
 		} else {
 			scanner, err := NewReceiptScanner(token, c.model)
 			if err == nil {
-				result.Progress, err = store.Process(ctx, timedScanner{
+				source := &sourceReader{config: c}
+				extractor := timedScanner{
 					Scanner: scanner,
 					timeout: c.timeout,
-				}, retry)
+				}
+				result.Progress, err = store.Process(ctx, source, extractor, retry)
 			}
 			if err != nil {
 				failures = append(failures, err)
