@@ -5,6 +5,7 @@ import (
 	"iter"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/studio-b12/gowebdav"
 )
@@ -37,6 +38,7 @@ func (r *File) Ext() string {
 
 func NewDir(user, pass, endpoint string) (*Dir, error) {
 	client := gowebdav.NewClient(endpoint, user, pass)
+	client.SetTimeout(30 * time.Second)
 
 	if err := client.Connect(); err != nil {
 		return nil, err
@@ -50,6 +52,10 @@ func NewDir(user, pass, endpoint string) (*Dir, error) {
 func (r *Dir) List(path string) iter.Seq2[os.FileInfo, error] {
 	return func(yield func(os.FileInfo, error) bool) {
 		files, err := r.client.ReadDir(path)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
 		for _, f := range files {
 			if !yield(f, err) {
 				return

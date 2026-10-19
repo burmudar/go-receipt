@@ -12,6 +12,8 @@ tool (
 require (
 	github.com/invopop/jsonschema v0.14.0
 	github.com/openai/openai-go/v3 v3.66.0
+	github.com/pressly/goose/v3 v3.28.0
+	github.com/spf13/cobra v1.10.2
 	github.com/studio-b12/gowebdav v0.12.0
 	modernc.org/sqlite v1.57.0
 )
@@ -64,7 +66,6 @@ require (
 	github.com/pelletier/go-toml v1.9.4 // indirect
 	github.com/pierrec/lz4/v4 v4.1.29 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
-	github.com/pressly/goose/v3 v3.28.0 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
@@ -72,7 +73,6 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spf13/afero v1.6.0 // indirect
 	github.com/spf13/cast v1.4.1 // indirect
-	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/cobra-cli v1.3.0 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
