@@ -1,6 +1,6 @@
 # go-receipt
 
-Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. Xero attachment upload, Paperless archiving, intake cleanup, and the review UI are planned in [milestone.md](milestone.md).
+Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Connect a Xero organisation and cache supported receipt attachment targets. Original files remain in the intake during processing. Xero attachment upload, Paperless archiving, intake cleanup, and the review UI are planned in [milestone.md](milestone.md).
 
 ## Setup
 
@@ -14,7 +14,7 @@ go tool goose -dir . sqlite3 ./app.db up
 mkdir -p inbox
 ```
 
-The database contains receipt hashes, source locations, extracted data, and OAuth client secrets. It does not contain original file bytes. Restrict access to the database, intake files, and their backups. The default inbox, database files, and default secret files are excluded from Git.
+The database contains receipt hashes, source locations, extracted data, OAuth client secrets, Xero tokens, and cached financial records. It does not contain original file bytes. Restrict access to the database, intake files, and their backups. The default inbox, database files, and default secret files are excluded from Git.
 
 ## Local receipt workflow
 
@@ -104,16 +104,41 @@ Xero attachment, Paperless archiving, and cleanup need separate persisted progre
 
 These completion steps are not implemented in milestone 1.
 
-## OAuth client configuration
+## Xero connection and transaction access
 
-The CLI can store Xero client credentials. It cannot log in to Xero yet.
+Create a Xero OAuth web app. Register `http://localhost:11211/callback` as its redirect URI. Enable the granular read scopes described in [docs/xero.md](docs/xero.md). Apply all database migrations before using these commands.
+
+Set `XERO_CLIENT_SECRET` in the environment. Then configure the client and log in:
 
 ```sh
-go run . oauth set --client-id CLIENT_ID --client-secret CLIENT_SECRET
+go run . oauth set --client-id CLIENT_ID
 go run . oauth get --name Xero
+go run . xero login
 ```
 
-`oauth get` includes the client secret. Do not copy its output into logs or issue reports.
+Open the printed URL in a browser on the same computer. The CLI listens only on the loopback interface and waits up to five minutes. Use `oauth set --redirect-uri` if you registered a different loopback URI. `oauth get` omits the secret. Prefer the environment variable over `--client-secret`, which can expose the secret in shell history and process arguments.
+
+Select the intended organisation explicitly, then retrieve attachment targets:
+
+```sh
+go run . xero connections
+go run . xero select --tenant-id TENANT_ID
+go run . xero sync
+go run . xero list
+go run . xero status
+```
+
+All `oauth` and `xero` commands accept `--db`. Xero commands also accept `--timeout`.
+
+- Supported targets are spend-money bank transactions (`SPEND`) and purchase bills (`ACCPAY`). Deleted and voided records are excluded. Bank statement lines are not available through these endpoints.
+- Sync preserves stable identifiers, contact, date, exact total, currency, reference, status, and reported reconciliation state where available. It does not upload attachments or change accounting data.
+- The selected organisation and rotated token pair survive a restart. Access tokens refresh before expiry and once after an HTTP 401 response.
+- `xero status` reports local state and the last complete sync time. It does not check remote access. `xero list` reads the cached snapshot; use `xero sync` to refresh it.
+- A failed page leaves the previous snapshot intact. A rate-limit error gives the delay before retry. There is no automatic rate-limit retry in this milestone.
+- A revoked connection or expired refresh grant requires `xero login` and organisation selection again. Changing client credentials also requires login.
+- Run only one Xero command per database at a time. Do not run `oauth set` during a Xero command. The database stores tokens in plaintext; restrict access to it and its backups.
+
+Controlled endpoint tests pass. Live login, refresh, and transaction access still require validation with a real Xero app and organisation. See [docs/xero.md](docs/xero.md) for API boundaries, attachment constraints, and the live validation checklist.
 
 ## Validation
 
@@ -122,4 +147,6 @@ go test ./...
 go vet ./...
 ```
 
-The focused CLI regression test uses real SQLite and a local HTTP server instead of OpenAI. It checks import, validation failure, repeat scans, persistence across connections, rejection of missing or changed source files, and successful retry after the original file is restored. It does not establish live OpenAI or WebDAV compatibility.
+The Xero workflow regression test uses real SQLite and controlled HTTP endpoints. It checks callback state, organisation selection, token rotation after a restart, pagination, exact totals, snapshot retention after a rate limit, tenant isolation, reconnect requirements, and secret redaction. It does not establish live Xero compatibility.
+
+The focused scan CLI regression test uses real SQLite and a local HTTP server instead of OpenAI. It checks import, validation failure, repeat scans, persistence across connections, rejection of missing or changed source files, and successful retry after the original file is restored. It does not establish live OpenAI or WebDAV compatibility.

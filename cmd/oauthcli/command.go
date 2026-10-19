@@ -2,7 +2,7 @@ package oauthcli
 
 import (
 	"encoding/json"
-	"fmt"
+	"os"
 	"slices"
 
 	"github.com/burmudar/go-receipt/db"
@@ -11,36 +11,28 @@ import (
 )
 
 func Cmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "oauth",
-		Short: "A brief description of your command",
-		Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("oauth called")
-		},
-	}
-
-	cmd.AddCommand(setSubCmd(), getSubCmd())
+	var database string
+	cmd := &cobra.Command{Use: "oauth", Short: "Configure OAuth client credentials"}
+	cmd.PersistentFlags().StringVar(&database, "db", "app.db", "migrated SQLite database")
+	cmd.AddCommand(setSubCmd(&database), getSubCmd(&database))
 	return cmd
 }
 
-func setSubCmd() *cobra.Command {
+func setSubCmd(database *string) *cobra.Command {
 	args := OAuthArgs{}
 	cmd := &cobra.Command{
 		Use:   "set",
 		Short: "Set OAuth client credentials",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if secret := os.Getenv("XERO_CLIENT_SECRET"); secret != "" {
+				args.ClientSecret = secret
+			}
 			if err := args.Validate(); err != nil {
 				return err
 			}
 
-			conn, err := db.Open("app.db")
+			conn, err := db.Open(*database)
 			if err != nil {
 				return err
 			}
@@ -56,19 +48,19 @@ func setSubCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&args.ClientID, "client-id", "", "oauth client id")
-	cmd.Flags().StringVar(&args.ClientSecret, "client-secret", "", "oauth client secret")
-	cmd.Flags().StringVar(&args.RedirectURI, "redirect-uri", "http://localhost:11211", "oauth redirect-uri")
+	cmd.Flags().StringVar(&args.ClientSecret, "client-secret", "", "oauth client secret (prefer XERO_CLIENT_SECRET)")
+	cmd.Flags().StringVar(&args.RedirectURI, "redirect-uri", "http://localhost:11211/callback", "registered loopback OAuth redirect URI")
 	return cmd
 }
 
-func getSubCmd() *cobra.Command {
+func getSubCmd(database *string) *cobra.Command {
 	var name, clientID string
 	cmd := &cobra.Command{
 		Use:   "get",
 		Short: "List OAuth clients, optionally filtered by name and client ID",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			conn, err := db.Open("app.db")
+			conn, err := db.Open(*database)
 			if err != nil {
 				return err
 			}

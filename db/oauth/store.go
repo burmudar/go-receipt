@@ -14,7 +14,7 @@ type OAuthClientModel struct {
 	ID           int
 	Name         string
 	ClientID     string
-	ClientSecret string
+	ClientSecret string `json:"-"`
 	RedirectURI  string
 	CreatedAt    time.Time
 }
