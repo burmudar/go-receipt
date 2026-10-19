@@ -2,7 +2,6 @@ package oauthcli
 
 import (
 	"encoding/json"
-	"fmt"
 	"slices"
 
 	"github.com/burmudar/go-receipt/db"
@@ -10,37 +9,32 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func Cmd() *cobra.Command {
+// Cmd manages OAuth client credentials. database points to the root --db flag value.
+func Cmd(database *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "oauth",
-		Short: "A brief description of your command",
-		Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+		Short: "Manage OAuth client credentials",
+		Long: `Manage OAuth client credentials.
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("oauth called")
-		},
+The Xero client credentials are a setup step. Connect Xero in the browser with "rcpt serve".`,
 	}
 
-	cmd.AddCommand(setSubCmd(), getSubCmd())
+	cmd.AddCommand(setSubCmd(database), getSubCmd(database))
 	return cmd
 }
 
-func setSubCmd() *cobra.Command {
+func setSubCmd(database *string) *cobra.Command {
 	args := OAuthArgs{}
 	cmd := &cobra.Command{
 		Use:   "set",
-		Short: "Set OAuth client credentials",
+		Short: "Set the Xero OAuth client credentials",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := args.Validate(); err != nil {
 				return err
 			}
 
-			conn, err := db.Open("app.db")
+			conn, err := db.Open(*database)
 			if err != nil {
 				return err
 			}
@@ -50,25 +44,23 @@ func setSubCmd() *cobra.Command {
 				Name:         "Xero",
 				ClientID:     args.ClientID,
 				ClientSecret: args.ClientSecret,
-				RedirectURI:  args.RedirectURI,
 			}
 			return oauth.NewStore(conn).Create(&m)
 		},
 	}
 	cmd.Flags().StringVar(&args.ClientID, "client-id", "", "oauth client id")
 	cmd.Flags().StringVar(&args.ClientSecret, "client-secret", "", "oauth client secret")
-	cmd.Flags().StringVar(&args.RedirectURI, "redirect-uri", "http://localhost:11211", "oauth redirect-uri")
 	return cmd
 }
 
-func getSubCmd() *cobra.Command {
+func getSubCmd(database *string) *cobra.Command {
 	var name, clientID string
 	cmd := &cobra.Command{
 		Use:   "get",
-		Short: "List OAuth clients, optionally filtered by name and client ID",
+		Short: "List OAuth clients without secrets, optionally filtered by name and client ID",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			conn, err := db.Open("app.db")
+			conn, err := db.Open(*database)
 			if err != nil {
 				return err
 			}

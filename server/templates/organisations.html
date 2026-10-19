@@ -1,0 +1,10 @@
+{{template "head"}}
+<h2>Select the Xero organisation</h2>
+<p>The service uses one organisation. To change it later, disconnect first.</p>
+<form method="post" action="/xero/organisations">
+{{range .Organisations}}
+<p><label><input type="radio" name="tenant_id" value="{{.TenantID}}" required> {{.Name}}</label></p>
+{{end}}
+<button type="submit">Select</button>
+</form>
+{{template "foot"}}

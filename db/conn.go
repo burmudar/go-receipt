@@ -6,14 +6,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func Default() *sql.DB {
-	db, err := Open("app.db")
-	if err != nil {
-		panic(err)
-	}
-	return db
-}
-
 // Open opens a SQLite database. The caller must close it and apply migrations.
 func Open(path string) (*sql.DB, error) {
 	conn, err := sql.Open("sqlite", path)

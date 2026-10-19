@@ -5,6 +5,7 @@ import (
 
 	"github.com/burmudar/go-receipt/cmd/oauthcli"
 	"github.com/burmudar/go-receipt/cmd/scancli"
+	"github.com/burmudar/go-receipt/cmd/servecli"
 	"github.com/spf13/cobra"
 )
 
@@ -13,10 +14,10 @@ var rootCmd = &cobra.Command{
 	Use:   "rcpt",
 	Short: "receipt management",
 	Long:  `manage receipt server`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
 }
+
+// database is the SQLite database path for every command.
+var database string
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
@@ -28,5 +29,6 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.AddCommand(oauthcli.Cmd(), scancli.Cmd())
+	rootCmd.PersistentFlags().StringVar(&database, "db", "app.db", "SQLite database (apply migrations first)")
+	rootCmd.AddCommand(oauthcli.Cmd(&database), scancli.Cmd(&database), servecli.Cmd(&database))
 }
