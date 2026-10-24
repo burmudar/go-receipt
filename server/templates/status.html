@@ -1,0 +1,29 @@
+{{template "head"}}
+<h2>Xero connection</h2>
+{{if .SetupError}}
+<p class="error">{{.SetupError}}</p>
+<p>Register this redirect URI for the Xero app: <code>{{.RedirectURL}}</code></p>
+{{else}}
+{{with .Connection}}
+<dl>
+<dt>Status</dt>
+<dd>{{if eq .Status "connected"}}Connected{{else if eq .Status "reconnect_required"}}Reconnect required{{else}}Not connected{{end}}</dd>
+{{if .TenantName}}<dt>Organisation</dt><dd>{{.TenantName}}</dd>{{end}}
+{{if not .RefreshedAt.IsZero}}<dt>Last token refresh</dt><dd>{{.RefreshedAt.Local.Format "2006-01-02 15:04"}}</dd>{{end}}
+{{if not .CheckedAt.IsZero}}<dt>Last connection check</dt><dd>{{.CheckedAt.Local.Format "2006-01-02 15:04"}}</dd>{{end}}
+</dl>
+{{with .LastError}}<p class="error">{{.}}</p>{{end}}
+{{if eq .Status "connected"}}
+<form class="inline" method="post" action="/xero/check"><button type="submit">Check connection</button></form>
+<form class="inline" method="post" action="/xero/disconnect"><button type="submit">Disconnect</button></form>
+{{else if eq .Status "reconnect_required"}}
+<form class="inline" method="post" action="/xero/connect"><button type="submit">Reconnect to Xero</button></form>
+<form class="inline" method="post" action="/xero/disconnect"><button type="submit">Disconnect</button></form>
+{{else}}
+<form method="post" action="/xero/connect"><button type="submit">Connect to Xero</button></form>
+{{end}}
+{{end}}
+<p>Xero redirect URI: <code>{{.RedirectURL}}</code></p>
+{{end}}
+{{if .Auth}}<form method="post" action="/logout"><button type="submit">Log out</button></form>{{end}}
+{{template "foot"}}

@@ -158,13 +158,13 @@ func TestScanPersistsAndRetriesFromRetainedSource(t *testing.T) {
 	run := func(args ...string) (string, error) {
 		t.Helper()
 
-		cmd := Cmd()
+		cmd := Cmd(&database)
 		var output bytes.Buffer
 		cmd.SetOut(&output)
 		cmd.SetErr(io.Discard)
 		cmd.SilenceUsage = true
 		cmd.SilenceErrors = true
-		cmd.SetArgs(append([]string{"--db", database}, args...))
+		cmd.SetArgs(args)
 
 		err := cmd.ExecuteContext(ctx)
 		return output.String(), err

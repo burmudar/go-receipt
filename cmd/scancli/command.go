@@ -16,7 +16,7 @@ import (
 )
 
 type config struct {
-	database     string
+	database     *string
 	folder       string
 	endpoint     string
 	user         string
@@ -28,8 +28,9 @@ type config struct {
 	importOnly   bool
 }
 
-func Cmd() *cobra.Command {
-	cfg := config{}
+// Cmd imports and extracts receipts. database points to the root --db flag value.
+func Cmd(database *string) *cobra.Command {
+	cfg := config{database: database}
 
 	cmd := &cobra.Command{
 		Use:   "scan",
@@ -41,7 +42,6 @@ func Cmd() *cobra.Command {
 	}
 
 	persistentFlags := cmd.PersistentFlags()
-	persistentFlags.StringVar(&cfg.database, "db", "app.db", "SQLite database (apply migrations first)")
 	persistentFlags.StringVar(
 		&cfg.apiKeyFile, "api-key-file", ".openai-password",
 		"OpenAI key file; OPENAI_API_KEY takes precedence",
@@ -67,7 +67,7 @@ func Cmd() *cobra.Command {
 		Short: "List persisted receipt status, analysis, and errors as JSON",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			conn, err := db.Open(cfg.database)
+			conn, err := db.Open(*cfg.database)
 			if err != nil {
 				return err
 			}
@@ -143,7 +143,7 @@ func (c config) run(cmd *cobra.Command, retry bool) error {
 		return fmt.Errorf("--timeout must be positive and --model must not be empty")
 	}
 
-	conn, err := db.Open(c.database)
+	conn, err := db.Open(*c.database)
 	if err != nil {
 		return err
 	}

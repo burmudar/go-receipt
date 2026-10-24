@@ -1,6 +1,6 @@
 # go-receipt
 
-Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. Xero attachment upload, Paperless archiving, intake cleanup, and the review UI are planned in [milestone.md](milestone.md).
+Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command runs the service and connects Xero through the browser. Xero transaction access, attachment upload, Paperless archiving, intake cleanup, and the review UI are planned in [milestone.md](milestone.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
 
 ## Setup
 
@@ -14,7 +14,9 @@ go tool goose -dir . sqlite3 ./app.db up
 mkdir -p inbox
 ```
 
-The database contains receipt hashes, source locations, extracted data, and OAuth client secrets. It does not contain original file bytes. Restrict access to the database, intake files, and their backups. The default inbox, database files, and default secret files are excluded from Git.
+All commands accept `--db` to select the database. The default is `app.db`.
+
+The database contains receipt hashes, source locations, extracted data, OAuth client secrets, and Xero tokens. It does not contain original file bytes. Restrict access to the database, intake files, and their backups. The default inbox, database files, and default secret files are excluded from Git.
 
 ## Local receipt workflow
 
@@ -46,7 +48,7 @@ Process pending receipts and retry failed extractions:
 go run . scan retry
 ```
 
-Retries read the saved source locations and verify each file against its recorded hash before extraction. Local retries do not need `--dir`, but the original folder must remain accessible. WebDAV retries need the connection settings shown below. All scan commands accept `--db` to select a different migrated database.
+Retries read the saved source locations and verify each file against its recorded hash before extraction. Local retries do not need `--dir`, but the original folder must remain accessible. WebDAV retries need the connection settings shown below.
 
 ### Processing rules
 
@@ -104,16 +106,55 @@ Xero attachment, Paperless archiving, and cleanup need separate persisted progre
 
 These completion steps are not implemented in milestone 1.
 
-## OAuth client configuration
+## Service and Xero connection
 
-The CLI can store Xero client credentials. It cannot log in to Xero yet.
+Save the Xero app client credentials. This is the only CLI setup step:
 
 ```sh
 go run . oauth set --client-id CLIENT_ID --client-secret CLIENT_SECRET
 go run . oauth get --name Xero
 ```
 
-`oauth get` includes the client secret. Do not copy its output into logs or issue reports.
+`oauth get` does not show the client secret. Restart the service after you change the credentials.
+
+Run the service on the media PC:
+
+```sh
+go run . serve
+```
+
+The service listens on `127.0.0.1:11211`. The default public URL is `http://localhost:11211`. Open the status page, select **Connect to Xero**, and authorise the organisation. The service uses one organisation, so authorise exactly one. If more than one organisation is connected to the Xero app, the connection fails. Disconnect the app from the other organisations in Xero, then connect again. To change the organisation, select **Disconnect** and connect again.
+
+Register the redirect URI on the status page for the Xero app. It is the public URL followed by `/xero/callback`. The service requests the scopes `offline_access accounting.banktransactions.read accounting.attachments`.
+
+The service checks the connection every 24 hours. Each check refreshes the tokens, because an unused Xero refresh token expires after 60 days. If Xero rejects the connection, the status page shows **Reconnect required**.
+
+### Home-network access through Caddy
+
+Xero accepts plain `http` redirect URIs only for `localhost`. For other devices on the home network, use Caddy on the media PC for HTTPS:
+
+```caddyfile
+receipts.home.arpa {
+	tls internal
+	reverse_proxy 127.0.0.1:11211
+}
+```
+
+- Make the host name resolve to the media PC on the home network, for example in the router DNS.
+- `tls internal` uses the Caddy local certificate authority. Install the Caddy root certificate on each device that uses the service.
+- Register `https://receipts.home.arpa/xero/callback` as a redirect URI for the Xero app. An app can have more than one redirect URI.
+
+Set a password, then start the service with the Caddy address:
+
+```sh
+umask 077
+printf '%s\n' 'a long password' > .rcpt-password
+go run . serve --public-url https://receipts.home.arpa
+```
+
+`RCPT_PASSWORD` takes precedence over `--password-file`. The service does not start without a password if the public URL or the listen address is not local. A restart ends all login sessions. Do not expose the service to the internet.
+
+`go run . serve --help` shows the timeout and check-interval flags.
 
 ## Validation
 
@@ -121,5 +162,7 @@ go run . oauth get --name Xero
 go test ./...
 go vet ./...
 ```
+
+The server test uses real SQLite and a controlled Xero server. It checks login, the browser connection flow, OAuth state validation, rejection of more than one organisation, token refresh after a restart, and the reconnect requirement after revocation. It does not establish live Xero compatibility.
 
 The focused CLI regression test uses real SQLite and a local HTTP server instead of OpenAI. It checks import, validation failure, repeat scans, persistence across connections, rejection of missing or changed source files, and successful retry after the original file is restored. It does not establish live OpenAI or WebDAV compatibility.

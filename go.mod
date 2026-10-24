@@ -15,6 +15,7 @@ require (
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/spf13/cobra v1.10.2
 	github.com/studio-b12/gowebdav v0.12.0
+	golang.org/x/oauth2 v0.36.0
 	modernc.org/sqlite v1.57.0
 )
 

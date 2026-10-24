@@ -11,11 +11,11 @@ import (
 var _ db.Store[OAuthClientModel] = (*OAuthStore)(nil)
 
 type OAuthClientModel struct {
-	ID           int
-	Name         string
-	ClientID     string
-	ClientSecret string
-	RedirectURI  string
+	ID       int
+	Name     string
+	ClientID string
+	// ClientSecret is never encoded to JSON, so CLI and HTTP output cannot expose it.
+	ClientSecret string `json:"-"`
 	CreatedAt    time.Time
 }
 
@@ -29,7 +29,7 @@ func NewStore(db *sql.DB) *OAuthStore {
 	return &OAuthStore{db: db}
 }
 
-const clientColumns = "id, name, client_id, client_secret, redirect_uri, created_at"
+const clientColumns = "id, name, client_id, client_secret, created_at"
 
 // Create inserts a client and populates its database-generated ID and CreatedAt.
 func (m *OAuthStore) Create(v *OAuthClientModel) error {
@@ -39,16 +39,15 @@ func (m *OAuthStore) Create(v *OAuthClientModel) error {
 	var id int
 	var createdAt time.Time
 	err := m.db.QueryRow(`
-		INSERT INTO oauth_client (name, client_id, client_secret, redirect_uri)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO oauth_client (name, client_id, client_secret)
+		VALUES (?, ?, ?)
 		ON CONFLICT (name) DO UPDATE SET
 		client_id = excluded.client_id,
 		client_secret = excluded.client_secret,
-		redirect_uri = excluded.redirect_uri,
 		created_at = CURRENT_TIMESTAMP
 		RETURNING id, created_at
 		`,
-		v.Name, v.ClientID, v.ClientSecret, v.RedirectURI,
+		v.Name, v.ClientID, v.ClientSecret,
 	).Scan(&id, &createdAt)
 	if err != nil {
 		return err
@@ -59,6 +58,11 @@ func (m *OAuthStore) Create(v *OAuthClientModel) error {
 
 func (m *OAuthStore) Get(id int) (*OAuthClientModel, error) {
 	return scanClient(m.db.QueryRow("SELECT "+clientColumns+" FROM oauth_client WHERE id = ?", id))
+}
+
+// GetByName returns sql.ErrNoRows when no client has the name.
+func (m *OAuthStore) GetByName(name string) (*OAuthClientModel, error) {
+	return scanClient(m.db.QueryRow("SELECT "+clientColumns+" FROM oauth_client WHERE name = ?", name))
 }
 
 func (m *OAuthStore) List() ([]*OAuthClientModel, error) {
@@ -92,9 +96,9 @@ func (m *OAuthStore) Update(v *OAuthClientModel) error {
 	}
 	var createdAt time.Time
 	err := m.db.QueryRow(`
-		UPDATE oauth_client SET name = ?, client_id = ?, client_secret = ?, redirect_uri = ?
+		UPDATE oauth_client SET name = ?, client_id = ?, client_secret = ?
 		WHERE id = ? RETURNING created_at`,
-		v.Name, v.ClientID, v.ClientSecret, v.RedirectURI, v.ID,
+		v.Name, v.ClientID, v.ClientSecret, v.ID,
 	).Scan(&createdAt)
 	if err != nil {
 		return err
@@ -105,7 +109,7 @@ func (m *OAuthStore) Update(v *OAuthClientModel) error {
 
 func scanClient(row interface{ Scan(...any) error }) (*OAuthClientModel, error) {
 	v := new(OAuthClientModel)
-	if err := row.Scan(&v.ID, &v.Name, &v.ClientID, &v.ClientSecret, &v.RedirectURI, &v.CreatedAt); err != nil {
+	if err := row.Scan(&v.ID, &v.Name, &v.ClientID, &v.ClientSecret, &v.CreatedAt); err != nil {
 		return nil, err
 	}
 	return v, nil

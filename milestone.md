@@ -18,15 +18,19 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 ## Scope decisions
 
-- Treat **receipt attachment** and **Xero accounting reconciliation** as separate operations. An uploaded attachment does not establish that Xero considers a transaction reconciled.
-- Before implementing Xero transaction access, confirm which Xero record types are attachment targets and which operations the API supports.
+- Treat **receipt attachment** and **Xero accounting reconciliation** as separate operations. The user reconciles in Xero. The service attaches receipts only to transactions that are already reconciled. It never reconciles transactions or changes their reconciliation status.
+- Attachment targets are reconciled, authorised Xero bank transactions of type `SPEND` or `RECEIVE` only. Manually entered transactions that are not reconciled are not eligible. Transfers, prepayments, overpayments, bills, and bill payments are out of scope. Receipts for bill payments need manual handling.
+- The Accounting API does not expose bank statement lines. A bank feed line becomes a bank transaction only when the user creates it in Xero, usually during reconciliation. Receipts therefore stay pending until the matching transaction is reconciled. The service does not create accounting records. See [docs/xero-api.md](docs/xero-api.md).
 - Keep extraction confidence separate from match confidence. Accurate extraction does not establish a correct transaction match.
-- Use one Go service with SQLite and a simple web UI initially. Separate deployments are not required for the first version.
+- Use one long-running Go service with SQLite and a simple web UI. Introduce the server in milestone 2a and extend it in later milestones. CLI commands support setup and diagnostics; they are not the main user workflow. Separate deployments are not required for the first version.
 - WebDAV or the local directory holds original receipts during processing. Files remain at their intake locations until processing is complete. SQLite stores hashes, source references, extracted data, and workflow state, not file bytes. No separate staging directory is required.
 - Paperless-ngx holds the completed archive. Upload to Paperless after the Xero attachment succeeds, not during initial import. Include final receipt tags and metadata.
 - Track Xero attachment, Paperless consumption, and intake cleanup separately. Remove the intake file only after both remote operations are confirmed and the file still matches the processed hash. An archive retry must not repeat a successful Xero attachment.
 - Keep unmatched and pending receipts in the intake. Ignored receipts need an explicit retention decision before cleanup.
 - Use a local receipt folder while WebDAV is unavailable. Local and WebDAV input must use the same extraction, persistence, review, and attachment workflow.
+- The service runs on a personal media PC for one user. There are no user accounts or roles. The service must be accessible from other devices on the home network. Caddy on the media PC terminates HTTPS for the home network and forwards requests to the service on localhost. Make the listen address and the public base URL configurable. Listen on localhost by default. Require single-user authentication when the public base URL is not a localhost URL or the listen address is not a loopback address, because requests through Caddy arrive from localhost. Do not expose the service to the internet.
+- Connect one Xero organisation. Scope stored transactions and receipt links by organisation identifier. Do not allow a change of organisation while approvals or uploads are pending.
+- Protect the SQLite database, intake files, and backups with file permissions for the service user. Encryption at rest is not required for this deployment.
 - Do not block milestones 1–5 on WebDAV access. Live WebDAV validation remains required before claiming the WebDAV deployment is ready.
 
 ## Milestone 1: Reliable extraction and persistent receipt records
@@ -55,46 +59,80 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - [x] Missing or changed source files fail before extraction. Restoring the original permits a retry.
 - [x] `go test ./...` passes.
 
-## Milestone 2: Xero connection and transaction access
+## Milestone 2a: Server and Xero connection
 
-**Outcome:** The application can maintain a Xero connection and retrieve supported attachment targets.
+**Outcome:** A running Go service on the media PC lets the user connect one Xero organisation through a browser and keeps that connection valid.
+
+**Status:** Implemented. The server test uses real SQLite and a controlled Xero server. A live Xero connection through localhost works and connects the intended organisation. Restart, token expiry, and revocation also pass with live Xero. Home-network access through Caddy and the Xero connection from another device also pass. The service requires login when the public URL or the listen address is not local. The first connection must authorise exactly one organisation. A reconnect must authorise the connected organisation. To change the organisation, disconnect first.
 
 ### Work
 
-- Confirm the target Xero record types, API permissions, and attachment constraints.
-- Implement OAuth login, callback validation, token persistence, and token refresh.
-- Select and persist the Xero organisation connection.
-- Fetch and store the transaction data needed for review and matching, including stable Xero identifiers.
-- Handle pagination, rate limits, connection expiry, and reconnect requirements.
-- Keep credentials and tokens out of logs and UI responses.
+- Confirm the Xero API behaviour, OAuth scopes, and attachment constraints. Done: see [docs/xero-api.md](docs/xero-api.md). The Xero app was created after 2 March 2026, so use granular scopes: `offline_access accounting.banktransactions.read accounting.attachments`. Confirm these names in the Xero app settings.
+- Add a server command with configurable listen address, public base URL, database path, request timeouts, and graceful shutdown. Listen on localhost by default.
+- Add single-user authentication for home-network access. Refuse to start when authentication is required and not configured. Use secure session cookies when the public base URL uses HTTPS.
+- Document a Caddy configuration for the service: an HTTPS site with a certificate that the home-network browsers trust, and a reverse proxy to the localhost listen address. Register the Caddy callback URL as the Xero redirect URI.
+- Use the same database configuration for the server and all CLI commands. Remove the fixed `app.db` path from the `oauth` commands.
+- Keep `oauth set` as the setup step for Xero client credentials. Derive the OAuth redirect URI from the public base URL. Xero requires HTTPS for every redirect URI except `http://localhost`. For home-network access, set the public base URL to the Caddy HTTPS address.
+- Add a browser-based Xero connection flow and an OAuth callback endpoint. Request the `offline_access` scope, validate OAuth state, persist tokens, and refresh expired access tokens. Access tokens expire after 30 minutes.
+- Refresh the connection at least once in each 60-day period, also when there is no other activity. An unused refresh token expires after 60 days.
+- Use one refresh path for all callers. Save each rotated refresh token in the same database transaction as the new access token so that concurrent requests cannot invalidate the stored connection. If a refresh response is lost, retry with the previous refresh token within the 30-minute grace period.
+- Persist the identifier of the one authorised Xero organisation. Reject a connection that authorises more than one organisation.
+- Show connection status and a reconnect action when a refresh fails or the connection is revoked.
+- Keep Xero connection logic independent of HTTP handlers and CLI commands.
+- Keep credentials and tokens out of logs, UI responses, and CLI output. Remove client secrets from `oauth get` output.
 
 ### Done when
 
-- [ ] A user can connect the intended Xero organisation.
-- [ ] The connection survives an application restart and access-token expiry.
-- [ ] The application can retrieve real transactions from that organisation.
-- [ ] A revoked connection produces a clear reconnect requirement.
-- [ ] Supported attachment targets and the boundary with accounting reconciliation are documented.
+- [x] The server command runs a persistent HTTP service and shuts down cleanly.
+- [x] With a configured home-network address, another device on the home network can open the service after authentication. The service refuses that address when authentication is not configured (live, through Caddy).
+- [x] The Xero connection flow works from another device on the home network (live Xero, through Caddy).
+- [x] The user can connect the intended Xero organisation through the browser without running a CLI login command (live Xero, localhost).
+- [x] The connection survives a service restart and access-token expiry (live Xero).
+- [x] A revoked connection produces a clear reconnect requirement in the browser (live Xero).
+- [x] Logs, pages, and CLI output do not contain client secrets or tokens (controlled Xero server and manual CLI check).
+- [x] The attachment target scope, required OAuth scopes, the reconciliation dependency, and the boundary with accounting reconciliation are documented in [docs/xero-api.md](docs/xero-api.md).
 
-## Milestone 3: Service and manual review UI
+## Milestone 2b: Bank transaction access
+
+**Outcome:** The service retrieves and stores reconciled bank transactions from the connected organisation, and keeps them current.
+
+### Work
+
+- Fetch `SPEND` and `RECEIVE` bank transactions with the fields needed for review and matching, including `BankTransactionID`, `Status`, `IsReconciled`, and `UpdatedDateUTC`. Only reconciled, `AUTHORISED` transactions are eligible for new links.
+- Store transactions scoped by organisation identifier. Update changed transactions instead of creating duplicates.
+- Refresh incrementally with the `If-Modified-Since` header. Record the last successful refresh time. Test whether this returns transactions that changed to `DELETED` or `VOIDED`. If it does not, add a periodic full refresh.
+- Mark deleted or voided transactions as unavailable for new links. Keep their records for existing receipt links and audit history.
+- Handle pagination (up to 100 records for each page) and rate limits (5 concurrent calls, 60 calls each minute, and 5000 calls each day for each organisation). Record refresh failures where the user can see them.
+- Keep transaction access logic independent of HTTP handlers and CLI commands.
+
+### Done when
+
+- [ ] The service can retrieve real reconciled bank transactions from the connected organisation.
+- [ ] A transaction reconciled after the previous refresh appears at the next refresh.
+- [ ] A changed, deleted, or voided transaction is updated at the next refresh without duplicate records.
+- [ ] A refresh across more than one page retrieves all matching transactions.
+- [ ] A rate-limit response delays the refresh and does not lose stored data.
+
+## Milestone 3: Background processing and manual review UI
 
 **Outcome:** A running service imports receipts, and the UI lets the user inspect and approve transaction links.
 
 ### Work
 
-- Add a server command and a background worker for receipt import, extraction, and transaction refresh.
+- Extend the existing server with a background worker for receipt import, extraction, and transaction refresh. Reuse the receipt processing workflow from milestone 1 and the transaction refresh from milestone 2b.
 - Add receipt list and detail pages with the original document beside extracted data.
 - Allow corrections to extracted fields while retaining the original extraction result.
 - Allow transaction search and manual selection within the connected organisation.
 - Persist approval, rejection, and ignore decisions with timestamps and an audit history.
-- Separate needs-review, unmatched, approved, completed, ignored, and failed items in the UI. Approved must not mean uploaded. Show Xero attachment, Paperless archive, and intake cleanup progress separately.
-- Protect UI access according to the deployment environment before exposing financial data.
+- Separate needs-review, unmatched, approved, rejected, completed, ignored, and failed items in the UI. Approved must not mean uploaded. Show Xero attachment, Paperless archive, and intake cleanup progress separately.
+- Decide whether ignored receipts stay in the intake, are archived in Paperless, or are removed. Record that decision before milestone 4 cleanup.
+- Keep the review pages, original documents, and review actions behind the same access rules as the Xero connection pages.
 
 ### Done when
 
 - [ ] New receipts in the configured local folder appear without running the scan CLI manually.
 - [ ] The user can inspect a receipt, correct its data, and approve a transaction link.
-- [ ] An unmatched receipt can remain pending or be ignored with a recorded decision.
+- [ ] An unmatched receipt can remain pending or be ignored with a recorded decision. The UI shows that a pending receipt can wait for reconciliation in Xero.
 - [ ] A restart preserves decisions and does not repeat completed work.
 - [ ] Approved receipts remain visibly pending until attachment upload succeeds. Attached receipts remain incomplete until Paperless archiving and intake cleanup finish.
 
@@ -105,11 +143,13 @@ Start with manual approval for every attachment. Add automatic approval only aft
 ### Work
 
 - Read the original from the intake and verify its hash before uploading to the approved Xero target.
+- Immediately before upload, fetch the approved bank transaction from Xero again. If it is deleted, voided, or no longer matches the approved amount, currency, or date, stop the upload and return the receipt to review.
 - Record the target identifier, attachment identifier where available, upload result, and completion time.
-- Make upload retries safe. Check for an existing attachment when a timeout leaves the result uncertain.
+- Make upload retries safe. Send a stable `Idempotency-Key` for each receipt and target. Use a unique attachment file name for each receipt so that an upload cannot replace another attachment. Check the attachment list when a timeout leaves the result uncertain.
+- Confirm the attachment size limit for bank transactions. Reject a receipt that exceeds it before upload.
 - After confirmed Xero attachment, upload the original to Paperless with receipt tags, corrected metadata, and useful transaction references.
 - Persist the Paperless task reference. Wait for successful consumption and save the document reference; upload acceptance alone is not archive confirmation.
-- Handle uncertain Paperless uploads without blindly submitting another copy. Resume only incomplete steps after an error or restart.
+- Handle uncertain Paperless uploads without blindly submitting another copy. Before a retry, search Paperless for the receipt checksum. Confirm whether the Paperless duplicate check rejects a second copy, and do not depend on it until confirmed. Resume only incomplete steps after an error or restart.
 - Remove the intake file only after confirmed Xero attachment and Paperless archiving. Verify that the file still matches the processed hash and prevent deletion of a replacement file. Record cleanup progress separately.
 - Show pending uploads, pending archives, pending cleanup, failures, and confirmed completion separately.
 - Provide a link to the Xero record where supported.
@@ -120,11 +160,12 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - [ ] One receipt completes the full path from local folder import through manual approval, confirmed Xero attachment, confirmed Paperless archive, and intake cleanup.
 - [ ] The attachment is visible on the intended Xero record.
 - [ ] A retry or restart does not create a duplicate attachment or archive document.
+- [ ] A target that is deleted, voided, or changed after approval is not uploaded to. The receipt returns to review with the reason.
 - [ ] A failed Paperless archive leaves the intake file intact and does not repeat the confirmed Xero upload.
 - [ ] Paperless contains the original receipt with final tags and metadata before intake cleanup.
 - [ ] Cleanup cannot remove an unarchived receipt or a replacement file. Unmatched and pending receipts remain in the intake.
 - [ ] The UI shows what was approved, what was uploaded, and what still needs attention.
-- [ ] Attachment completion is not labelled as accounting reconciliation unless that status is separately verified.
+- [ ] The UI labels completed items as attached and archived. It does not label them as reconciled.
 
 **This is the first usable end-to-end release.**
 
@@ -153,8 +194,8 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 ### Work
 
-- Add bounded retries, backoff, request timeouts, and graceful shutdown.
-- Recover interrupted jobs without repeating confirmed side effects.
+- Add bounded retries and backoff. Extend request timeouts and graceful shutdown across all background jobs.
+- Extend the restart recovery from milestone 4 to all background jobs. Do not repeat confirmed side effects.
 - Show worker health, last successful import, Xero connection status, and unresolved failures.
 - Document deployment, configuration, backups, and restore procedures for SQLite, the intake files, and the Paperless archive.
 - Define and validate a conservative automatic-approval policy using reviewed receipts before enabling it.
@@ -183,7 +224,7 @@ Do not mark these checks complete based on local-folder tests alone.
 
 ## Delivery order
 
-Implement milestones 1–4 in order. Complete one manually approved receipt attachment, Paperless archive, and intake cleanup before adding matching automation. Add milestone 5 to reduce review effort. Use milestone 6 to prepare for unattended operation; basic access protection, secret handling, and safe uploads are required earlier, not deferred to this milestone.
+Implement milestones 1, 2a, 2b, 3, and 4 in order. Introduce the long-running server and browser-based Xero connection in milestone 2a. Add bank transaction access in milestone 2b. Extend that server with background processing and manual review in milestone 3. Complete one manually approved receipt attachment, Paperless archive, and intake cleanup before adding matching automation. Add milestone 5 to reduce review effort. Use milestone 6 to prepare for unattended operation; basic access protection, secret handling, and safe uploads are required earlier, not deferred to this milestone.
 
 ## Validation approach
 
