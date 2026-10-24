@@ -80,7 +80,7 @@ to the proxy address and set a password with RCPT_PASSWORD or --password-file.`,
 	}
 
 	flags := cmd.Flags()
-	flags.StringVar(&listen, "listen", "127.0.0.1:8080", "TCP address for the HTTP server")
+	flags.StringVar(&listen, "listen", "127.0.0.1:11211", "TCP address for the HTTP server")
 	flags.StringVar(&publicURL, "public-url", "", "URL that browsers use, for example the Caddy HTTPS address (default http://localhost:<listen port>)")
 	flags.StringVar(&passwordFile, "password-file", ".rcpt-password", "UI password file; RCPT_PASSWORD takes precedence")
 	flags.DurationVar(&requestTimeout, "request-timeout", time.Minute, "Read and write timeout for each incoming request")

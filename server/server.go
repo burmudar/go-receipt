@@ -23,7 +23,7 @@ const callbackPath = "/xero/callback"
 
 type Config struct {
 	DB *sql.DB
-	// Listen is the TCP address for the HTTP server, for example 127.0.0.1:8080.
+	// Listen is the TCP address for the HTTP server, for example 127.0.0.1:11211.
 	Listen string
 	// PublicURL is the address that browsers use, for example the Caddy HTTPS address.
 	PublicURL *url.URL

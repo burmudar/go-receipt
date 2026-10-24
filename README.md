@@ -123,7 +123,7 @@ Run the service on the media PC:
 go run . serve
 ```
 
-The service listens on `127.0.0.1:8080`. The default public URL is `http://localhost:8080`. Open the status page, select **Connect to Xero**, and authorise the organisation. The service uses one organisation, so authorise exactly one. If more than one organisation is connected to the Xero app, the connection fails. Disconnect the app from the other organisations in Xero, then connect again. To change the organisation, select **Disconnect** and connect again.
+The service listens on `127.0.0.1:11211`. The default public URL is `http://localhost:11211`. Open the status page, select **Connect to Xero**, and authorise the organisation. The service uses one organisation, so authorise exactly one. If more than one organisation is connected to the Xero app, the connection fails. Disconnect the app from the other organisations in Xero, then connect again. To change the organisation, select **Disconnect** and connect again.
 
 Register the redirect URI on the status page for the Xero app. It is the public URL followed by `/xero/callback`. The service requests the scopes `offline_access accounting.banktransactions.read accounting.attachments`.
 
@@ -136,7 +136,7 @@ Xero accepts plain `http` redirect URIs only for `localhost`. For other devices 
 ```caddyfile
 receipts.home.arpa {
 	tls internal
-	reverse_proxy 127.0.0.1:8080
+	reverse_proxy 127.0.0.1:11211
 }
 ```
 
