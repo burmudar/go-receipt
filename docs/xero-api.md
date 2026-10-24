@@ -23,7 +23,8 @@ Checked on 2026-10-19 for milestone 2a. The Xero developer pages use JavaScript 
 - **Incremental refresh:** the `If-Modified-Since` header returns only records that were created or changed after that time. (Spec)
 - **Filter:** the `where` query parameter accepts expressions such as `Status=="AUTHORISED"`. (Spec)
 - **Organisation:** each request must include the `xero-tenant-id` header. (Spec)
-- **Open question:** it is not confirmed whether `If-Modified-Since` returns records that changed to `DELETED` or `VOIDED`. Test this with a real organisation in milestone 2b.
+- **Deleted records:** a list without `where` includes `DELETED` records. `If-Modified-Since` also returns a record that changed to `DELETED`. (Observed on 24 October 2026: for a record deleted at 14:18:33 UTC, `If-Modified-Since: 2026-08-02T14:18:00Z` returned it and `2026-08-02T14:19:00Z` did not.) An incremental refresh is therefore sufficient, and a periodic full refresh is not necessary. The organisation had no `VOIDED` bank transactions, so that status is not tested.
+- **`If-Modified-Since` format:** an RFC 3339 time in UTC, for example `2026-08-02T14:18:00Z`, is read as UTC. (Observed)
 - **Response format:** request `Accept: application/json`. Dates use the format `/Date(1476316800000+0000)/`: milliseconds since the Unix epoch in UTC. `Total` is a JSON number. (Spec)
 - **Rate-limit response:** HTTP 429 has a `Retry-After` header in seconds and an `X-Rate-Limit-Problem` header that names the limit. (FAQ, Search)
 
@@ -32,7 +33,7 @@ Checked on 2026-10-19 for milestone 2a. The Xero developer pages use JavaScript 
 Milestone 2b uses these choices. Each one avoids a failure that a live organisation can cause:
 
 - The service requests all types without a `where` filter and keeps only `SPEND` and `RECEIVE`. A `Status` filter would let a voided record leave the result during a refresh and move later records to an earlier page.
-- The service orders by `BankTransactionID`. A change during a refresh does not move a record in this order. A record can be read twice, but no record is skipped. It is not confirmed that Xero accepts this order.
+- The service orders by `BankTransactionID`. A change during a refresh does not move a record in this order. A record can be read twice, but no record is skipped. Xero accepts this order. (Observed: a full refresh of 1354 records across 14 pages.)
 - The next `If-Modified-Since` is the HTTP `Date` header of the first page, which is the Xero clock. The service saves it only after all pages are saved.
 - The service waits for a `Retry-After` of up to one minute, at most three times for each page. A longer wait stops the refresh.
 
