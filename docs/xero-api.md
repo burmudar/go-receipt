@@ -50,7 +50,8 @@ Checked on 2026-10-19 for milestone 2a. The Xero developer pages use JavaScript 
 ## Scopes
 
 - Apps created on or after 2 March 2026 use granular scopes. Older apps can use broad scopes until September 2027. (FAQ)
-- **Granular scopes:** `offline_access accounting.banktransactions.read accounting.attachments`. (Search; confirm in the Xero app settings.) This project uses these scopes, because its Xero app was created after 2 March 2026.
+- **Granular scopes:** `offline_access accounting.banktransactions.read accounting.attachments`. (Search; confirmed with live Xero on 24 October 2026: Xero granted all three.) This project uses these scopes, because its Xero app was created after 2 March 2026.
+- Xero can grant more scopes than the app requests. On 24 October 2026, Xero also granted `openid profile email accounting.banktransactions`, the scopes of an earlier CLI login for the same app. (Observed)
 - **Broad scopes:** `offline_access accounting.transactions.read accounting.attachments`. (Spec) Not used by this project.
 - `accounting.attachments` gives read and write access to attachments. `offline_access` is necessary to get refresh tokens.
 - A change of scopes requires the user to authorise the app again.

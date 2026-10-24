@@ -63,7 +63,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** A running Go service on the media PC lets the user connect one Xero organisation through a browser and keeps that connection valid.
 
-**Status:** Implemented. The server test uses real SQLite and a controlled Xero server. A live Xero connection through localhost works and connects the intended organisation. Live validation of restart, token expiry, revocation, and Caddy remains open. The service requires login when the public URL or the listen address is not local. The first connection must authorise exactly one organisation. A reconnect must authorise the connected organisation. To change the organisation, disconnect first.
+**Status:** Implemented. The server test uses real SQLite and a controlled Xero server. A live Xero connection through localhost works and connects the intended organisation. Restart, token expiry, and revocation also pass with live Xero. Caddy and home-network validation remain open. The service requires login when the public URL or the listen address is not local. The first connection must authorise exactly one organisation. A reconnect must authorise the connected organisation. To change the organisation, disconnect first.
 
 ### Work
 
@@ -87,8 +87,8 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - [ ] With a configured home-network address, another device on the home network can open the service after authentication. The service refuses that address when authentication is not configured.
 - [ ] The Xero connection flow works from another device on the home network.
 - [x] The user can connect the intended Xero organisation through the browser without running a CLI login command (live Xero, localhost).
-- [ ] The connection survives a service restart and access-token expiry.
-- [ ] A revoked connection produces a clear reconnect requirement in the browser.
+- [x] The connection survives a service restart and access-token expiry (live Xero).
+- [x] A revoked connection produces a clear reconnect requirement in the browser (live Xero).
 - [x] Logs, pages, and CLI output do not contain client secrets or tokens (controlled Xero server and manual CLI check).
 - [x] The attachment target scope, required OAuth scopes, the reconciliation dependency, and the boundary with accounting reconciliation are documented in [docs/xero-api.md](docs/xero-api.md).
 
