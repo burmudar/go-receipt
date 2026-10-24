@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -36,6 +37,8 @@ type Config struct {
 	Endpoints   Endpoints
 	// HTTPClient is used for all Xero requests. Set a timeout on it.
 	HTTPClient *http.Client
+	// Logger records the steps of the connection flow. It never receives tokens, codes, or the client secret.
+	Logger *slog.Logger
 }
 
 // Organisation is a Xero tenant of type ORGANISATION that the user authorised.

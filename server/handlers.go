@@ -73,6 +73,7 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	if reason := query.Get("error"); reason != "" {
+		s.cfg.Logger.Warn("xero callback returned an error", "error", reason, "description", query.Get("error_description"))
 		s.render(w, http.StatusBadRequest, "error.html", errorPage{Message: "Xero did not authorise the connection: " + reason})
 		return
 	}

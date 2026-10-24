@@ -116,6 +116,7 @@ func New(cfg Config) (*Server, error) {
 			RedirectURL:  RedirectURL(cfg.PublicURL),
 			Endpoints:    cfg.XeroEndpoints,
 			HTTPClient:   &http.Client{Timeout: cfg.XeroTimeout},
+			Logger:       cfg.Logger,
 		})
 		if err != nil {
 			return nil, err
@@ -140,8 +141,22 @@ func New(cfg Config) (*Server, error) {
 	return s, nil
 }
 
+// ServeHTTP logs each request. It logs only the path, because the callback query contains the authorisation code.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.handler.ServeHTTP(w, r)
+	start := time.Now()
+	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	s.handler.ServeHTTP(rec, r)
+	s.cfg.Logger.Info("request", "method", r.Method, "path", r.URL.Path, "status", rec.status, "duration", time.Since(start))
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
 }
 
 // Run serves HTTP until ctx is cancelled, then shuts down gracefully.

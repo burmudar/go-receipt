@@ -7,7 +7,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,6 +62,7 @@ type tokens struct {
 type Manager struct {
 	db     *sql.DB
 	client *client
+	log    *slog.Logger
 	now    func() time.Time
 	mu     sync.Mutex
 }
@@ -69,7 +72,11 @@ func NewManager(db *sql.DB, cfg Config) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{db: db, client: c, now: time.Now}, nil
+	log := cfg.Logger
+	if log == nil {
+		log = slog.Default()
+	}
+	return &Manager{db: db, client: c, log: log, now: time.Now}, nil
 }
 
 // Start records a new authorisation request and returns the Xero URL for the browser.
@@ -90,6 +97,7 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 	); err != nil {
 		return "", fmt.Errorf("save xero authorisation request: %w", err)
 	}
+	m.log.Info("xero authorisation started", "redirect_uri", m.client.oauth.RedirectURL, "scopes", strings.Join(Scopes, " "))
 	return m.client.authCodeURL(state, verifier), nil
 }
 
@@ -98,6 +106,7 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 // A reconnect must authorise the organisation that is already connected.
 func (m *Manager) Complete(ctx context.Context, state, code string) error {
 	if state == "" || code == "" {
+		m.log.Warn("xero callback rejected: the state or the code is missing")
 		return ErrInvalidState
 	}
 
@@ -106,17 +115,24 @@ func (m *Manager) Complete(ctx context.Context, state, code string) error {
 	err := m.db.QueryRowContext(ctx,
 		"DELETE FROM xero_oauth_state WHERE state = ? RETURNING verifier, created_at", state,
 	).Scan(&verifier, &createdAt)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && m.now().Sub(createdAt) > stateLifetime) {
+	if errors.Is(err, sql.ErrNoRows) {
+		m.log.Warn("xero callback rejected: the state is unknown or was already used")
 		return ErrInvalidState
 	}
 	if err != nil {
 		return fmt.Errorf("read xero authorisation request: %w", err)
+	}
+	if age := m.now().Sub(createdAt); age > stateLifetime {
+		m.log.Warn("xero callback rejected: the state expired", "age", age.Round(time.Second), "lifetime", stateLifetime)
+		return ErrInvalidState
 	}
 
 	token, err := m.client.exchange(ctx, code, verifier)
 	if err != nil {
 		return fmt.Errorf("exchange xero authorisation code: %w", err)
 	}
+	m.log.Info("xero authorisation code exchanged",
+		"expires_at", token.Expiry.UTC(), "refresh_token", token.RefreshToken != "", "granted_scopes", token.Extra("scope"))
 	if token.RefreshToken == "" {
 		return fmt.Errorf("xero did not return a refresh token; check that the offline_access scope is granted")
 	}
@@ -124,6 +140,7 @@ func (m *Manager) Complete(ctx context.Context, state, code string) error {
 	if err != nil {
 		return err
 	}
+	m.log.Info("xero organisations authorised", "count", len(organisations), "organisations", organisations)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -144,6 +161,7 @@ func (m *Manager) Complete(ctx context.Context, state, code string) error {
 		i := slices.IndexFunc(organisations, func(o Organisation) bool { return o.TenantID == current.tenantID })
 		if i < 0 {
 			message := fmt.Sprintf("reconnect and authorise the organisation %q; disconnect first to change the organisation", current.tenantName)
+			m.log.Warn("xero reconnect rejected: the connected organisation is not authorised", "tenant_id", current.tenantID)
 			if err := m.setStatus(ctx, StatusReconnectRequired, message); err != nil {
 				return err
 			}
@@ -151,12 +169,17 @@ func (m *Manager) Complete(ctx context.Context, state, code string) error {
 		}
 		next.tenantID, next.tenantName = current.tenantID, organisations[i].Name
 	case len(organisations) != 1:
+		m.log.Warn("xero connection rejected: exactly one organisation must be authorised", "count", len(organisations))
 		return fmt.Errorf("xero authorised %d organisations; this service uses exactly one. Disconnect this app from the other organisations in Xero, then connect again", len(organisations))
 	default:
 		next.tenantID, next.tenantName = organisations[0].TenantID, organisations[0].Name
 	}
 
-	return m.save(ctx, next)
+	if err := m.save(ctx, next); err != nil {
+		return err
+	}
+	m.log.Info("xero connected", "tenant_id", next.tenantID, "tenant_name", next.tenantName, "reconnect", current.tenantID != "")
+	return nil
 }
 
 // Connection returns the persisted state without contacting Xero.
@@ -211,15 +234,22 @@ func (m *Manager) Check(ctx context.Context) error {
 		"UPDATE xero_connection SET checked_at = ?, last_error = '' WHERE id = 1 AND status = ?",
 		m.now().UTC(), StatusConnected,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	m.log.Info("xero connection checked", "tenant_id", tenantID)
+	return nil
 }
 
 // Disconnect removes the local connection. The user can then connect a different organisation.
 func (m *Manager) Disconnect(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	_, err := m.db.ExecContext(ctx, "DELETE FROM xero_connection WHERE id = 1")
-	return err
+	if _, err := m.db.ExecContext(ctx, "DELETE FROM xero_connection WHERE id = 1"); err != nil {
+		return err
+	}
+	m.log.Info("xero disconnected")
+	return nil
 }
 
 // token returns the stored tokens and refreshes them when the access token expires soon.
@@ -245,6 +275,7 @@ func (m *Manager) token(ctx context.Context) (tokens, error) {
 	}
 	if err != nil {
 		// Keep the previous refresh token. Xero accepts it again for 30 minutes if the response was lost.
+		m.log.Warn("xero token refresh failed; the previous refresh token is kept", "error", err)
 		if saveErr := m.setError(ctx, fmt.Sprintf("refresh xero access token: %v", err)); saveErr != nil {
 			return tokens{}, errors.Join(err, saveErr)
 		}
@@ -258,6 +289,7 @@ func (m *Manager) token(ctx context.Context) (tokens, error) {
 	if err := m.save(ctx, t); err != nil {
 		return tokens{}, err
 	}
+	m.log.Info("xero access token refreshed", "expires_at", t.expiresAt, "refresh_token_rotated", refreshed.RefreshToken != "")
 	return t, nil
 }
 
@@ -305,6 +337,7 @@ func (m *Manager) requireReconnect(ctx context.Context, cause error) error {
 }
 
 func (m *Manager) setReconnect(ctx context.Context, cause error) error {
+	m.log.Warn("xero connection requires a reconnect", "reason", cause)
 	if err := m.setStatus(ctx, StatusReconnectRequired, cause.Error()); err != nil {
 		return errors.Join(cause, err)
 	}
