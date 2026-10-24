@@ -7,7 +7,7 @@
 {{with .Connection}}
 <dl>
 <dt>Status</dt>
-<dd>{{if eq .Status "connected"}}Connected{{else if eq .Status "select_organisation"}}Select an organisation{{else if eq .Status "reconnect_required"}}Reconnect required{{else}}Not connected{{end}}</dd>
+<dd>{{if eq .Status "connected"}}Connected{{else if eq .Status "reconnect_required"}}Reconnect required{{else}}Not connected{{end}}</dd>
 {{if .TenantName}}<dt>Organisation</dt><dd>{{.TenantName}}</dd>{{end}}
 {{if not .RefreshedAt.IsZero}}<dt>Last token refresh</dt><dd>{{.RefreshedAt.Local.Format "2006-01-02 15:04"}}</dd>{{end}}
 {{if not .CheckedAt.IsZero}}<dt>Last connection check</dt><dd>{{.CheckedAt.Local.Format "2006-01-02 15:04"}}</dd>{{end}}
@@ -16,9 +16,6 @@
 {{if eq .Status "connected"}}
 <form class="inline" method="post" action="/xero/check"><button type="submit">Check connection</button></form>
 <form class="inline" method="post" action="/xero/disconnect"><button type="submit">Disconnect</button></form>
-{{else if eq .Status "select_organisation"}}
-<p><a href="/xero/organisations">Select the organisation</a></p>
-<form method="post" action="/xero/disconnect"><button type="submit">Disconnect</button></form>
 {{else if eq .Status "reconnect_required"}}
 <form class="inline" method="post" action="/xero/connect"><button type="submit">Reconnect to Xero</button></form>
 <form class="inline" method="post" action="/xero/disconnect"><button type="submit">Disconnect</button></form>

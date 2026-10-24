@@ -17,10 +17,9 @@ import (
 type Status string
 
 const (
-	StatusNotConnected       Status = "not_connected"
-	StatusSelectOrganisation Status = "select_organisation"
-	StatusConnected          Status = "connected"
-	StatusReconnectRequired  Status = "reconnect_required"
+	StatusNotConnected      Status = "not_connected"
+	StatusConnected         Status = "connected"
+	StatusReconnectRequired Status = "reconnect_required"
 )
 
 var (
@@ -95,11 +94,11 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 }
 
 // Complete validates the callback state, exchanges the code, and saves the tokens.
-// If the user authorises exactly one organisation and no organisation is selected, it is selected.
-// A reconnect must authorise the organisation that is already selected.
-func (m *Manager) Complete(ctx context.Context, state, code string) (Status, error) {
+// The service uses one organisation, so the first connection must authorise exactly one organisation.
+// A reconnect must authorise the organisation that is already connected.
+func (m *Manager) Complete(ctx context.Context, state, code string) error {
 	if state == "" || code == "" {
-		return "", ErrInvalidState
+		return ErrInvalidState
 	}
 
 	var verifier string
@@ -108,22 +107,22 @@ func (m *Manager) Complete(ctx context.Context, state, code string) (Status, err
 		"DELETE FROM xero_oauth_state WHERE state = ? RETURNING verifier, created_at", state,
 	).Scan(&verifier, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && m.now().Sub(createdAt) > stateLifetime) {
-		return "", ErrInvalidState
+		return ErrInvalidState
 	}
 	if err != nil {
-		return "", fmt.Errorf("read xero authorisation request: %w", err)
+		return fmt.Errorf("read xero authorisation request: %w", err)
 	}
 
 	token, err := m.client.exchange(ctx, code, verifier)
 	if err != nil {
-		return "", fmt.Errorf("exchange xero authorisation code: %w", err)
+		return fmt.Errorf("exchange xero authorisation code: %w", err)
 	}
 	if token.RefreshToken == "" {
-		return "", fmt.Errorf("xero did not return a refresh token; check that the offline_access scope is granted")
+		return fmt.Errorf("xero did not return a refresh token; check that the offline_access scope is granted")
 	}
 	organisations, err := m.client.organisations(ctx, token.AccessToken)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	m.mu.Lock()
@@ -131,14 +130,14 @@ func (m *Manager) Complete(ctx context.Context, state, code string) (Status, err
 
 	current, err := m.load(ctx)
 	if err != nil && !errors.Is(err, ErrNotConnected) {
-		return "", err
+		return err
 	}
 
 	next := tokens{
 		accessToken:  token.AccessToken,
 		refreshToken: token.RefreshToken,
 		expiresAt:    token.Expiry.UTC(),
-		status:       StatusSelectOrganisation,
+		status:       StatusConnected,
 	}
 	switch {
 	case current.tenantID != "":
@@ -146,96 +145,49 @@ func (m *Manager) Complete(ctx context.Context, state, code string) (Status, err
 		if i < 0 {
 			message := fmt.Sprintf("reconnect and authorise the organisation %q; disconnect first to change the organisation", current.tenantName)
 			if err := m.setStatus(ctx, StatusReconnectRequired, message); err != nil {
-				return "", err
+				return err
 			}
-			return StatusReconnectRequired, errors.New(message)
+			return errors.New(message)
 		}
-		next.tenantID, next.tenantName, next.status = current.tenantID, organisations[i].Name, StatusConnected
-	case len(organisations) == 0:
-		return "", fmt.Errorf("no xero organisation was authorised")
-	case len(organisations) == 1:
-		next.tenantID, next.tenantName, next.status = organisations[0].TenantID, organisations[0].Name, StatusConnected
+		next.tenantID, next.tenantName = current.tenantID, organisations[i].Name
+	case len(organisations) != 1:
+		return fmt.Errorf("xero authorised %d organisations; this service uses exactly one. Disconnect this app from the other organisations in Xero, then connect again", len(organisations))
+	default:
+		next.tenantID, next.tenantName = organisations[0].TenantID, organisations[0].Name
 	}
 
-	if err := m.save(ctx, next); err != nil {
-		return "", err
-	}
-	return next.status, nil
-}
-
-// Organisations lists the organisations that the current authorisation can access.
-func (m *Manager) Organisations(ctx context.Context) ([]Organisation, error) {
-	t, err := m.token(ctx)
-	if err != nil {
-		return nil, err
-	}
-	organisations, err := m.client.organisations(ctx, t.accessToken)
-	if errors.Is(err, errUnauthorized) {
-		return nil, m.requireReconnect(ctx, err)
-	}
-	return organisations, err
-}
-
-// Select saves the organisation. It is allowed only before an organisation is selected.
-func (m *Manager) Select(ctx context.Context, tenantID string) error {
-	organisations, err := m.Organisations(ctx)
-	if err != nil {
-		return err
-	}
-	i := slices.IndexFunc(organisations, func(o Organisation) bool { return o.TenantID == tenantID })
-	if i < 0 {
-		return fmt.Errorf("the organisation is not authorised for this connection")
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	result, err := m.db.ExecContext(ctx, `
-		UPDATE xero_connection SET tenant_id = ?, tenant_name = ?, status = ?, last_error = ''
-		WHERE id = 1 AND status = ?`,
-		tenantID, organisations[i].Name, StatusConnected, StatusSelectOrganisation,
-	)
-	if err != nil {
-		return fmt.Errorf("save xero organisation: %w", err)
-	}
-	if n, _ := result.RowsAffected(); n != 1 {
-		return fmt.Errorf("an organisation is already selected; disconnect first to change the organisation")
-	}
-	return nil
+	return m.save(ctx, next)
 }
 
 // Connection returns the persisted state without contacting Xero.
 func (m *Manager) Connection(ctx context.Context) (Connection, error) {
 	var c Connection
-	var tenantID sql.NullString
 	var checkedAt sql.NullTime
 	err := m.db.QueryRowContext(ctx, `
 		SELECT status, tenant_id, tenant_name, expires_at, refreshed_at, checked_at, last_error
 		FROM xero_connection WHERE id = 1`,
-	).Scan(&c.Status, &tenantID, &c.TenantName, &c.ExpiresAt, &c.RefreshedAt, &checkedAt, &c.LastError)
+	).Scan(&c.Status, &c.TenantID, &c.TenantName, &c.ExpiresAt, &c.RefreshedAt, &checkedAt, &c.LastError)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Connection{Status: StatusNotConnected}, nil
 	}
 	if err != nil {
 		return Connection{}, fmt.Errorf("read xero connection: %w", err)
 	}
-	c.TenantID, c.CheckedAt = tenantID.String, checkedAt.Time
+	c.CheckedAt = checkedAt.Time
 	return c, nil
 }
 
-// AccessToken returns a valid access token and the selected tenant ID for Xero API requests.
+// AccessToken returns a valid access token and the connected tenant ID for Xero API requests.
 // The caller must not log or display the token.
 func (m *Manager) AccessToken(ctx context.Context) (accessToken, tenantID string, err error) {
 	t, err := m.token(ctx)
 	if err != nil {
 		return "", "", err
 	}
-	if t.status != StatusConnected {
-		return "", "", fmt.Errorf("select a xero organisation first")
-	}
 	return t.accessToken, t.tenantID, nil
 }
 
-// Check refreshes the access token when necessary and confirms that the selected organisation is still connected.
+// Check refreshes the access token when necessary and confirms that the organisation is still connected.
 // Run it at least once in each 60-day period, because an unused refresh token expires after 60 days.
 func (m *Manager) Check(ctx context.Context) error {
 	accessToken, tenantID, err := m.AccessToken(ctx)
@@ -250,7 +202,7 @@ func (m *Manager) Check(ctx context.Context) error {
 		return m.recordError(ctx, err)
 	}
 	if !slices.ContainsFunc(organisations, func(o Organisation) bool { return o.TenantID == tenantID }) {
-		return m.requireReconnect(ctx, errors.New("the selected organisation is no longer connected"))
+		return m.requireReconnect(ctx, errors.New("the organisation is no longer connected"))
 	}
 
 	m.mu.Lock()
@@ -311,27 +263,21 @@ func (m *Manager) token(ctx context.Context) (tokens, error) {
 
 func (m *Manager) load(ctx context.Context) (tokens, error) {
 	var t tokens
-	var tenantID sql.NullString
 	err := m.db.QueryRowContext(ctx, `
 		SELECT tenant_id, tenant_name, access_token, refresh_token, expires_at, status
 		FROM xero_connection WHERE id = 1`,
-	).Scan(&tenantID, &t.tenantName, &t.accessToken, &t.refreshToken, &t.expiresAt, &t.status)
+	).Scan(&t.tenantID, &t.tenantName, &t.accessToken, &t.refreshToken, &t.expiresAt, &t.status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return tokens{}, ErrNotConnected
 	}
 	if err != nil {
 		return tokens{}, fmt.Errorf("read xero connection: %w", err)
 	}
-	t.tenantID = tenantID.String
 	return t, nil
 }
 
 // save writes the tokens in one statement, so that the rotated refresh token and the new access token are saved together.
 func (m *Manager) save(ctx context.Context, t tokens) error {
-	var tenantID any
-	if t.tenantID != "" {
-		tenantID = t.tenantID
-	}
 	_, err := m.db.ExecContext(ctx, `
 		INSERT INTO xero_connection (id, tenant_id, tenant_name, access_token, refresh_token, expires_at, status, last_error, refreshed_at)
 		VALUES (1, ?, ?, ?, ?, ?, ?, '', ?)
@@ -344,7 +290,7 @@ func (m *Manager) save(ctx context.Context, t tokens) error {
 		status = excluded.status,
 		last_error = '',
 		refreshed_at = excluded.refreshed_at`,
-		tenantID, t.tenantName, t.accessToken, t.refreshToken, t.expiresAt, t.status, m.now().UTC(),
+		t.tenantID, t.tenantName, t.accessToken, t.refreshToken, t.expiresAt, t.status, m.now().UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("save xero connection: %w", err)

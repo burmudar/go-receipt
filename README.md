@@ -123,7 +123,7 @@ Run the service on the media PC:
 go run . serve
 ```
 
-The service listens on `127.0.0.1:8080`. The default public URL is `http://localhost:8080`. Open the status page, select **Connect to Xero**, and authorise the organisation. If you authorise more than one organisation, select one. The service uses one organisation. To change it, select **Disconnect** and connect again.
+The service listens on `127.0.0.1:8080`. The default public URL is `http://localhost:8080`. Open the status page, select **Connect to Xero**, and authorise the organisation. The service uses one organisation, so authorise exactly one. If more than one organisation is connected to the Xero app, the connection fails. Disconnect the app from the other organisations in Xero, then connect again. To change the organisation, select **Disconnect** and connect again.
 
 Register the redirect URI on the status page for the Xero app. It is the public URL followed by `/xero/callback`. The service requests the scopes `offline_access accounting.banktransactions.read accounting.attachments`.
 
@@ -163,6 +163,6 @@ go test ./...
 go vet ./...
 ```
 
-The server test uses real SQLite and a controlled Xero server. It checks login, the browser connection flow, OAuth state validation, organisation selection, token refresh after a restart, and the reconnect requirement after revocation. It does not establish live Xero compatibility.
+The server test uses real SQLite and a controlled Xero server. It checks login, the browser connection flow, OAuth state validation, rejection of more than one organisation, token refresh after a restart, and the reconnect requirement after revocation. It does not establish live Xero compatibility.
 
 The focused CLI regression test uses real SQLite and a local HTTP server instead of OpenAI. It checks import, validation failure, repeat scans, persistence across connections, rejection of missing or changed source files, and successful retry after the original file is restored. It does not establish live OpenAI or WebDAV compatibility.

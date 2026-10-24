@@ -129,8 +129,6 @@ func New(cfg Config) (*Server, error) {
 	mux.Handle("GET /{$}", s.protect(s.status))
 	mux.Handle("POST /xero/connect", s.protectXero(s.connect))
 	mux.Handle("GET "+callbackPath, s.protectXero(s.callback))
-	mux.Handle("GET /xero/organisations", s.protectXero(s.organisations))
-	mux.Handle("POST /xero/organisations", s.protectXero(s.selectOrganisation))
 	mux.Handle("POST /xero/check", s.protectXero(s.check))
 	mux.Handle("POST /xero/disconnect", s.protectXero(s.disconnect))
 

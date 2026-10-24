@@ -77,38 +77,15 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, err := s.xero.Complete(r.Context(), query.Get("state"), query.Get("code"))
+	err := s.xero.Complete(r.Context(), query.Get("state"), query.Get("code"))
 	switch {
 	case errors.Is(err, xero.ErrInvalidState):
 		s.fail(w, http.StatusBadRequest, err)
 	case err != nil:
 		s.fail(w, http.StatusBadGateway, err)
-	case status == xero.StatusSelectOrganisation:
-		http.Redirect(w, r, "/xero/organisations", http.StatusSeeOther)
 	default:
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	}
-}
-
-type organisationsPage struct {
-	Organisations []xero.Organisation
-}
-
-func (s *Server) organisations(w http.ResponseWriter, r *http.Request) {
-	organisations, err := s.xero.Organisations(r.Context())
-	if err != nil {
-		s.fail(w, http.StatusBadGateway, err)
-		return
-	}
-	s.render(w, http.StatusOK, "organisations.html", organisationsPage{Organisations: organisations})
-}
-
-func (s *Server) selectOrganisation(w http.ResponseWriter, r *http.Request) {
-	if err := s.xero.Select(r.Context(), r.PostFormValue("tenant_id")); err != nil {
-		s.fail(w, http.StatusBadRequest, err)
-		return
-	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) check(w http.ResponseWriter, r *http.Request) {

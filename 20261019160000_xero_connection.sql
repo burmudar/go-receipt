@@ -9,19 +9,18 @@ CREATE TABLE xero_oauth_state (
   created_at TIMESTAMP NOT NULL
 );
 
--- The single Xero connection. tenant_id is NULL until the user selects an organisation.
+-- The single Xero connection to one organisation.
 CREATE TABLE xero_connection (
   id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
-  tenant_id TEXT,
+  tenant_id TEXT NOT NULL,
   tenant_name TEXT NOT NULL DEFAULT '',
   access_token TEXT NOT NULL,
   refresh_token TEXT NOT NULL,
   expires_at TIMESTAMP NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('select_organisation', 'connected', 'reconnect_required')),
+  status TEXT NOT NULL CHECK (status IN ('connected', 'reconnect_required')),
   last_error TEXT NOT NULL DEFAULT '',
   refreshed_at TIMESTAMP NOT NULL,
-  checked_at TIMESTAMP,
-  CHECK (status != 'connected' OR tenant_id IS NOT NULL)
+  checked_at TIMESTAMP
 );
 
 -- +goose Down

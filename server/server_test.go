@@ -29,6 +29,7 @@ type fakeXero struct {
 	challenge     string
 	refreshTokens map[string]int // refresh token -> generation of the next token pair
 	accessToken   string
+	tenants       string // JSON response of GET /connections
 	revoked       bool
 }
 
@@ -74,10 +75,7 @@ func (f *fakeXero) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `[
-			{"tenantId":"tenant-a","tenantType":"ORGANISATION","tenantName":"Home Ltd"},
-			{"tenantId":"tenant-b","tenantType":"ORGANISATION","tenantName":"Other Ltd"},
-			{"tenantId":"practice","tenantType":"PRACTICE","tenantName":"Practice"}]`)
+		io.WriteString(w, f.tenants)
 	default:
 		http.NotFound(w, r)
 	}
@@ -109,7 +107,9 @@ func TestXeroConnectionThroughBrowser(t *testing.T) {
 	}
 	conn.Close()
 
-	fake := &fakeXero{refreshTokens: map[string]int{}}
+	fake := &fakeXero{refreshTokens: map[string]int{}, tenants: `[
+		{"tenantId":"tenant-a","tenantType":"ORGANISATION","tenantName":"Home Ltd"},
+		{"tenantId":"tenant-b","tenantType":"ORGANISATION","tenantName":"Other Ltd"}]`}
 	xeroServer := httptest.NewServer(fake)
 	defer xeroServer.Close()
 
@@ -197,30 +197,42 @@ func TestXeroConnectionThroughBrowser(t *testing.T) {
 	expect(do(srv, http.MethodPost, "/login", url.Values{"password": {"correct horse"}}), http.StatusSeeOther, "/")
 	expect(do(srv, http.MethodPost, "/xero/connect", url.Values{}, "Sec-Fetch-Site", "cross-site"), http.StatusForbidden, "")
 
-	resp := do(srv, http.MethodPost, "/xero/connect", url.Values{})
-	expect(resp, http.StatusSeeOther, "")
-	authorize, err := url.Parse(resp.Header.Get("Location"))
-	if err != nil {
-		t.Fatal(err)
+	// connect starts an authorisation request and returns the callback URL that Xero sends the browser to.
+	connect := func() string {
+		t.Helper()
+		resp := do(srv, http.MethodPost, "/xero/connect", url.Values{})
+		expect(resp, http.StatusSeeOther, "")
+		authorize, err := url.Parse(resp.Header.Get("Location"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		query := authorize.Query()
+		if query.Get("redirect_uri") != "https://receipts.home.arpa/xero/callback" ||
+			query.Get("scope") != strings.Join(xero.Scopes, " ") || query.Get("code_challenge_method") != "S256" {
+			t.Fatalf("unexpected authorisation request: %s", authorize)
+		}
+		fake.challenge = query.Get("code_challenge")
+		return "/xero/callback?" + url.Values{"state": {query.Get("state")}, "code": {"good-code"}}.Encode()
 	}
-	query := authorize.Query()
-	if query.Get("redirect_uri") != "https://receipts.home.arpa/xero/callback" ||
-		query.Get("scope") != strings.Join(xero.Scopes, " ") || query.Get("code_challenge_method") != "S256" {
-		t.Fatalf("unexpected authorisation request: %s", authorize)
-	}
-	fake.challenge = query.Get("code_challenge")
 
+	// The service uses one organisation, so a connection that authorises two organisations fails.
+	callback := connect()
 	expect(do(srv, http.MethodGet, "/xero/callback?state=forged&code=good-code", nil), http.StatusBadRequest, "")
-	callback := "/xero/callback?" + url.Values{"state": {query.Get("state")}, "code": {"good-code"}}.Encode()
-	expect(do(srv, http.MethodGet, callback, nil), http.StatusSeeOther, "/xero/organisations")
-	expect(do(srv, http.MethodGet, callback, nil), http.StatusBadRequest, "") // A state is used once.
-
-	resp = do(srv, http.MethodGet, "/xero/organisations", nil)
-	expect(resp, http.StatusOK, "")
-	if page, _ := io.ReadAll(resp.Body); !strings.Contains(string(page), "Other Ltd") || strings.Contains(string(page), "Practice") {
-		t.Fatalf("organisation page does not list only organisations:\n%s", page)
+	resp := do(srv, http.MethodGet, callback, nil)
+	expect(resp, http.StatusBadGateway, "")
+	if page, _ := io.ReadAll(resp.Body); !strings.Contains(string(page), "authorised 2 organisations") {
+		t.Fatalf("callback does not reject two organisations:\n%s", page)
 	}
-	expect(do(srv, http.MethodPost, "/xero/organisations", url.Values{"tenant_id": {"tenant-a"}}), http.StatusSeeOther, "/")
+	expect(do(srv, http.MethodGet, callback, nil), http.StatusBadRequest, "") // A state is used once.
+	if page := statusPage(srv); !strings.Contains(page, "Not connected") {
+		t.Fatalf("status page shows a connection after the rejected callback:\n%s", page)
+	}
+
+	// With one organisation authorised, the callback connects it. The PRACTICE tenant is not an organisation.
+	fake.tenants = `[
+		{"tenantId":"tenant-a","tenantType":"ORGANISATION","tenantName":"Home Ltd"},
+		{"tenantId":"practice","tenantType":"PRACTICE","tenantName":"Practice"}]`
+	expect(do(srv, http.MethodGet, connect(), nil), http.StatusSeeOther, "/")
 	if page := statusPage(srv); !strings.Contains(page, "Connected") || !strings.Contains(page, "Home Ltd") {
 		t.Fatalf("status page does not show the connection:\n%s", page)
 	}

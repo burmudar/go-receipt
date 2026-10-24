@@ -63,7 +63,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** A running Go service on the media PC lets the user connect one Xero organisation through a browser and keeps that connection valid.
 
-**Status:** Implemented. The server test uses real SQLite and a controlled Xero server. Live Xero and Caddy validation remain open. The service requires login when the public URL or the listen address is not local. A reconnect must authorise the selected organisation. To change the organisation, disconnect first.
+**Status:** Implemented. The server test uses real SQLite and a controlled Xero server. Live Xero and Caddy validation remain open. The service requires login when the public URL or the listen address is not local. The first connection must authorise exactly one organisation. A reconnect must authorise the connected organisation. To change the organisation, disconnect first.
 
 ### Work
 
@@ -76,7 +76,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - Add a browser-based Xero connection flow and an OAuth callback endpoint. Request the `offline_access` scope, validate OAuth state, persist tokens, and refresh expired access tokens. Access tokens expire after 30 minutes.
 - Refresh the connection at least once in each 60-day period, also when there is no other activity. An unused refresh token expires after 60 days.
 - Use one refresh path for all callers. Save each rotated refresh token in the same database transaction as the new access token so that concurrent requests cannot invalidate the stored connection. If a refresh response is lost, retry with the previous refresh token within the 30-minute grace period.
-- Let the user select the Xero organisation in the browser and persist its identifier.
+- Persist the identifier of the one authorised Xero organisation. Reject a connection that authorises more than one organisation.
 - Show connection status and a reconnect action when a refresh fails or the connection is revoked.
 - Keep Xero connection logic independent of HTTP handlers and CLI commands.
 - Keep credentials and tokens out of logs, UI responses, and CLI output. Remove client secrets from `oauth get` output.
