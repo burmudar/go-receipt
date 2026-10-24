@@ -131,6 +131,8 @@ func New(cfg Config) (*Server, error) {
 	mux.Handle("POST /xero/connect", s.protectXero(s.connect))
 	mux.Handle("GET "+callbackPath, s.protectXero(s.callback))
 	mux.Handle("POST /xero/check", s.protectXero(s.check))
+	mux.Handle("POST /xero/transactions/refresh", s.protectXero(s.refreshTransactions))
+	mux.Handle("GET /xero/transactions", s.protectXero(s.transactions))
 	mux.Handle("POST /xero/disconnect", s.protectXero(s.disconnect))
 
 	csrf := http.NewCrossOriginProtection()
@@ -157,6 +159,11 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
+}
+
+// Unwrap lets http.ResponseController reach the connection, for example to extend a write deadline.
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
 }
 
 // Run serves HTTP until ctx is cancelled, then shuts down gracefully.

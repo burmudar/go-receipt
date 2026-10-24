@@ -24,6 +24,17 @@ Checked on 2026-10-19 for milestone 2a. The Xero developer pages use JavaScript 
 - **Filter:** the `where` query parameter accepts expressions such as `Status=="AUTHORISED"`. (Spec)
 - **Organisation:** each request must include the `xero-tenant-id` header. (Spec)
 - **Open question:** it is not confirmed whether `If-Modified-Since` returns records that changed to `DELETED` or `VOIDED`. Test this with a real organisation in milestone 2b.
+- **Response format:** request `Accept: application/json`. Dates use the format `/Date(1476316800000+0000)/`: milliseconds since the Unix epoch in UTC. `Total` is a JSON number. (Spec)
+- **Rate-limit response:** HTTP 429 has a `Retry-After` header in seconds and an `X-Rate-Limit-Problem` header that names the limit. (FAQ, Search)
+
+### How the service refreshes
+
+Milestone 2b uses these choices. Each one avoids a failure that a live organisation can cause:
+
+- The service requests all types without a `where` filter and keeps only `SPEND` and `RECEIVE`. A `Status` filter would let a voided record leave the result during a refresh and move later records to an earlier page.
+- The service orders by `BankTransactionID`. A change during a refresh does not move a record in this order. A record can be read twice, but no record is skipped. It is not confirmed that Xero accepts this order.
+- The next `If-Modified-Since` is the HTTP `Date` header of the first page, which is the Xero clock. The service saves it only after all pages are saved.
+- The service waits for a `Retry-After` of up to one minute, at most three times for each page. A longer wait stops the refresh.
 
 ## Attachments
 

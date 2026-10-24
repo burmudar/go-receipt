@@ -96,6 +96,8 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** The service retrieves and stores reconciled bank transactions from the connected organisation, and keeps them current.
 
+**Status:** Implemented. The test uses real SQLite and a controlled Accounting API: pagination, incremental refresh, changed and voided records, a short rate limit, and a stopped refresh. Live Xero validation remains open, including the order by `BankTransactionID` and whether `If-Modified-Since` returns deleted and voided records. The user starts a refresh on the status page. Milestone 3 adds the background refresh.
+
 ### Work
 
 - Fetch `SPEND` and `RECEIVE` bank transactions with the fields needed for review and matching, including `BankTransactionID`, `Status`, `IsReconciled`, and `UpdatedDateUTC`. Only reconciled, `AUTHORISED` transactions are eligible for new links.
