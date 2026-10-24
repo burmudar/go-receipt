@@ -129,6 +129,12 @@ Register the redirect URI on the status page for the Xero app. It is the public 
 
 The service checks the connection every 24 hours. Each check refreshes the tokens, because an unused Xero refresh token expires after 60 days. If Xero rejects the connection, the status page shows **Reconnect required**.
 
+### Bank transactions
+
+Select **Refresh transactions** on the status page to fetch bank transactions from Xero. The first refresh fetches all transactions. Each later refresh fetches only the transactions that changed since the last complete refresh. The service stores `SPEND` and `RECEIVE` transactions, including deleted and voided ones. Only reconciled, authorised transactions can receive a receipt. Select **View transactions** to see the latest 500.
+
+A refresh saves each page when it arrives. If a refresh fails, the status page shows the error, and the next refresh starts again from the last complete refresh. A short rate-limit response delays the refresh. The daily limit stops it.
+
 ### Home-network access through Caddy
 
 Xero accepts plain `http` redirect URIs only for `localhost`. For other devices on the home network, use Caddy on the media PC for HTTPS:

@@ -6,12 +6,19 @@
 <title>Receipts</title>
 <style>
 body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+body.wide { max-width: 72rem; }
 .error { color: #a40000; }
 dt { font-weight: bold; }
 form.inline { display: inline; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 0.25rem 0.5rem; border-bottom: 1px solid #ddd; }
+.number, .nowrap { white-space: nowrap; }
+.number { text-align: right; }
+.muted { color: #888; }
 </style>
 </head>
-<body>
+{{/* An optional argument is the body class, for example "wide" for a table page. */}}
+<body{{with .}} class="{{.}}"{{end}}>
 <h1>Receipts</h1>
 {{end}}
 {{define "foot"}}</body>

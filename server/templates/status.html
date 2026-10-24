@@ -16,6 +16,16 @@
 {{if eq .Status "connected"}}
 <form class="inline" method="post" action="/xero/check"><button type="submit">Check connection</button></form>
 <form class="inline" method="post" action="/xero/disconnect"><button type="submit">Disconnect</button></form>
+{{with $.Transactions}}
+<h2>Bank transactions</h2>
+<dl>
+<dt>Stored</dt><dd>{{.Stored}} spend and receive transactions, {{.Eligible}} reconciled and authorised</dd>
+<dt>Last complete refresh</dt><dd>{{if .RefreshedAt.IsZero}}Never{{else}}{{.RefreshedAt.Local.Format "2006-01-02 15:04"}}{{end}}</dd>
+</dl>
+{{if .LastError}}<p class="error">The refresh on {{.AttemptedAt.Local.Format "2006-01-02 15:04"}} failed: {{.LastError}}</p>{{end}}
+<form class="inline" method="post" action="/xero/transactions/refresh"><button type="submit">Refresh transactions</button></form>
+{{if .Stored}}<a href="/xero/transactions">View transactions</a>{{end}}
+{{end}}
 {{else if eq .Status "reconnect_required"}}
 <form class="inline" method="post" action="/xero/connect"><button type="submit">Reconnect to Xero</button></form>
 <form class="inline" method="post" action="/xero/disconnect"><button type="submit">Disconnect</button></form>

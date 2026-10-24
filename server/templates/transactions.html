@@ -1,0 +1,16 @@
+{{template "head" "wide"}}
+<h2>Bank transactions</h2>
+<p><a href="/">Back to status</a></p>
+<p>The latest 500 spend and receive transactions, newest first. Only reconciled, authorised transactions can receive a receipt.</p>
+<table>
+<thead><tr><th>Date</th><th>Type</th><th>Contact</th><th>Reference</th><th>Bank account</th><th class="number">Total</th><th>Status</th><th>Reconciled</th></tr></thead>
+<tbody>
+{{range .Transactions}}
+<tr{{if not .Eligible}} class="muted"{{end}}>
+<td class="nowrap">{{.Date}}</td><td>{{.Type}}</td><td>{{.Contact}}</td><td>{{.Reference}}</td><td>{{.BankAccount}}</td>
+<td class="number">{{.Total}} {{.Currency}}</td><td>{{.Status}}</td><td>{{if .Reconciled}}Yes{{else}}No{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{template "foot"}}

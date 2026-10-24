@@ -39,10 +39,11 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 type statusPage struct {
-	SetupError  string
-	RedirectURL string
-	Connection  xero.Connection
-	Auth        bool
+	SetupError   string
+	RedirectURL  string
+	Connection   xero.Connection
+	Transactions xero.BankTransactionSummary
+	Auth         bool
 }
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +59,10 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page.Connection = connection
+	if page.Transactions, err = s.xero.BankTransactionSummary(r.Context()); err != nil {
+		s.fail(w, http.StatusInternalServerError, err)
+		return
+	}
 	s.render(w, http.StatusOK, "status.html", page)
 }
 
@@ -95,6 +100,31 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 		s.cfg.Logger.Warn("xero connection check failed", "error", err)
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (s *Server) refreshTransactions(w http.ResponseWriter, r *http.Request) {
+	// A refresh can wait for rate limits. Allow more time than other requests.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(10 * time.Minute)); err != nil {
+		s.cfg.Logger.Warn("extend the write deadline for the transaction refresh", "error", err)
+	}
+	// The status page shows the result.
+	if err := s.xero.RefreshBankTransactions(r.Context()); err != nil {
+		s.cfg.Logger.Warn("xero bank transaction refresh failed", "error", err)
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+type transactionsPage struct {
+	Transactions []xero.BankTransaction
+}
+
+func (s *Server) transactions(w http.ResponseWriter, r *http.Request) {
+	transactions, err := s.xero.BankTransactions(r.Context())
+	if err != nil {
+		s.fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.render(w, http.StatusOK, "transactions.html", transactionsPage{Transactions: transactions})
 }
 
 func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {

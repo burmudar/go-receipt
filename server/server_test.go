@@ -69,6 +69,15 @@ func (f *fakeXero) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{
 			"access_token": f.accessToken, "refresh_token": refresh, "expires_in": 1800, "token_type": "Bearer",
 		})
+	case "/api.xro/2.0/BankTransactions":
+		if r.Header.Get("Authorization") != "Bearer "+f.accessToken || r.Header.Get("xero-tenant-id") != "tenant-a" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"BankTransactions":[{"BankTransactionID":"bt-1","Type":"SPEND","Status":"AUTHORISED",
+			"IsReconciled":true,"Date":"/Date(1759190400000+0000)/","Reference":"Groceries","CurrencyCode":"ZAR",
+			"Total":123.45,"UpdatedDateUTC":"/Date(1759276800000+0000)/","Contact":{"Name":"Corner Shop"}}]}`)
 	case "/connections":
 		if r.Header.Get("Authorization") != "Bearer "+f.accessToken || f.revoked {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -125,6 +134,7 @@ func TestXeroConnectionThroughBrowser(t *testing.T) {
 			AuthURL:        xeroServer.URL + "/authorize",
 			TokenURL:       xeroServer.URL + "/token",
 			ConnectionsURL: xeroServer.URL + "/connections",
+			AccountingURL:  xeroServer.URL + "/api.xro/2.0",
 		},
 	}
 
@@ -235,6 +245,16 @@ func TestXeroConnectionThroughBrowser(t *testing.T) {
 	expect(do(srv, http.MethodGet, connect(), nil), http.StatusSeeOther, "/")
 	if page := statusPage(srv); !strings.Contains(page, "Connected") || !strings.Contains(page, "Home Ltd") {
 		t.Fatalf("status page does not show the connection:\n%s", page)
+	}
+
+	expect(do(srv, http.MethodPost, "/xero/transactions/refresh", url.Values{}), http.StatusSeeOther, "/")
+	if page := statusPage(srv); !strings.Contains(page, "1 spend and receive transactions, 1 reconciled and authorised") {
+		t.Fatalf("status page does not show the refreshed transactions:\n%s", page)
+	}
+	resp = do(srv, http.MethodGet, "/xero/transactions", nil)
+	expect(resp, http.StatusOK, "")
+	if page, _ := io.ReadAll(resp.Body); !strings.Contains(string(page), "Corner Shop") || !strings.Contains(string(page), "123.45 ZAR") {
+		t.Fatalf("transactions page does not list the transaction:\n%s", page)
 	}
 	stop()
 

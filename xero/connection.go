@@ -65,6 +65,8 @@ type Manager struct {
 	log    *slog.Logger
 	now    func() time.Time
 	mu     sync.Mutex
+	// refreshing makes sure that one bank transaction refresh runs at a time.
+	refreshing sync.Mutex
 }
 
 func NewManager(db *sql.DB, cfg Config) (*Manager, error) {
