@@ -43,7 +43,9 @@ Milestone 2b uses these choices. Each one avoids a failure that a live organisat
 - **Replace:** `POST` on the same path updates the attachment that has that file name. Use a file name that is unique for each receipt, for example one that includes the content hash. (Spec)
 - **List:** `GET /BankTransactions/{BankTransactionID}/Attachments` lists existing attachments. Use it to check an uncertain upload. (Spec)
 - **Retry:** attachment requests accept an `Idempotency-Key` header of up to 128 characters. Use a stable key for each receipt and target for safe retries in milestone 4a. (Spec)
-- **Limits:** the search summaries give 10 attachments for each document. They give 10 MB or 25 MB for each file, and these values are not consistent. Confirm the limit for bank transactions before milestone 4a. (Search)
+- **Limits:** use a conservative application cap of 10,000,000 bytes. [Workbench API integration support](https://wbi.freshdesk.com/support/solutions/articles/4000197263-what-is-the-file-size-limit-with-xero-) and [Soldo's Xero export documentation](https://support.soldo.com/hc/en-gb/articles/360015338038-What-are-the-limitations-for-attachments-exported-to-Xero) both state 10 MB (Soldo also states 10 attachments per transaction). These are secondary sources, not direct confirmation of the bank-transaction endpoint limit. The developer page remains JavaScript-only to the available fetcher; the OpenAPI upload operation does not specify a byte limit. Live boundary validation and direct Xero confirmation remain outstanding. Do not confuse the browser's reported 25 MB limit with the API limit.
+- **Recovery:** milestone 4a lists attachments before each attempt and verifies a matching remote attachment's SHA-256 by downloading it by attachment ID. A name collision with different bytes fails closed. The stable idempotency key is independent of process restarts. Confirmed records are never re-uploaded.
+- **Browser link:** the service displays the target ID. No organisation-safe browser deep link has been verified, so it does not construct one.
 
 ## OAuth
 

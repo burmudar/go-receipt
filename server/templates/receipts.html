@@ -5,7 +5,7 @@
 {{if .Filter}}<p>Showing: {{.Filter}}</p>{{end}}
 {{if .Items}}
 <table><thead><tr><th>Receipt</th><th>Processing</th><th>Review</th><th>Error</th></tr></thead><tbody>
-{{range .Items}}<tr><td><a href="/receipts/{{.SHA256}}">{{.Name}}</a></td><td>{{.Status}}</td><td>{{.State}}{{if eq .State "approved"}} — attachment pending{{end}}</td><td class="error">{{.LastError}}</td></tr>{{end}}
+{{range .Items}}<tr><td><a href="/receipts/{{.SHA256}}">{{.Name}}</a></td><td>{{.Status}}</td><td>{{.State}}{{with .Attachment.State}} — attachment {{.}}{{end}}</td><td class="error">{{.LastError}} {{.Attachment.Error}}</td></tr>{{end}}
 </tbody></table>
 {{else}}<p>No receipts in this view.</p>{{end}}
 {{template "foot"}}

@@ -1,6 +1,6 @@
 # go-receipt
 
-Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command imports local and WebDAV receipts in the background, provides receipt pages, and connects Xero through the browser. Manual review decisions are available in the receipt pages. Attachment upload, Paperless archiving, and intake cleanup are planned in [milestone.md](milestone.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
+Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command imports local and WebDAV receipts in the background, provides receipt pages, and connects Xero through the browser. Manual review decisions are available in the receipt pages. Approved receipts are uploaded to Xero with durable confirmation and retry recovery. Paperless archiving and intake cleanup are planned in [milestone.md](milestone.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
 
 ## Setup
 
@@ -104,7 +104,7 @@ WebDAV or the local directory holds work in progress. Paperless holds the comple
 
 Xero attachment, Paperless archiving, and cleanup need separate persisted progress. A failed archive must not repeat a successful Xero upload. Unmatched and pending receipts stay in the intake. Ignored receipts require an explicit retention decision.
 
-These completion steps are not implemented in milestone 1.
+Xero attachment is implemented in milestone 4a; Paperless and cleanup remain planned.
 
 ## Service and Xero connection
 
@@ -167,9 +167,21 @@ A refresh saves each page when it arrives. If a refresh fails, the status page s
 
 ### Manual review
 
-Open **View receipts** to filter by processing and review status. For an extracted receipt, correct its merchant, amount, currency, or date without overwriting the original extraction. Search stored transactions by contact, reference, account, date, amount, or ID, then approve or reject a selected transaction. Approval is limited to reconciled, authorised transactions in the connected organisation; it does not upload an attachment or change reconciliation in Xero. Only the latest 100 search results are shown; narrow the search to find older transactions.
+Open **View receipts** to filter by processing and review status. For an extracted receipt, correct its merchant, amount, currency, or date without overwriting the original extraction. Search stored transactions by contact, reference, account, date, amount, or ID, then approve or reject a selected transaction. Approval is limited to reconciled, authorised transactions in the connected organisation; it queues an attachment upload without changing reconciliation in Xero. Only the latest 100 search results are shown; narrow the search to find older transactions.
 
-A receipt can be marked unmatched while it waits for reconciliation in Xero, or ignored. **Ignored receipts remain in the intake**; the decision and retention choice are recorded in the review history. No files are archived or deleted by this milestone. Return an approval to review before editing it or disconnecting the Xero organisation. Corrections and decisions have a timestamped history, including the data and transaction reviewed. Attachment, archive, and cleanup remain pending until those operations are implemented.
+A receipt can be marked unmatched while it waits for reconciliation in Xero, or ignored. **Ignored receipts remain in the intake**; the decision and retention choice are recorded in the review history. No files are archived or deleted by this milestone. Before upload starts, return an approval to review to edit it or disconnect the Xero organisation. Corrections and decisions have a timestamped history, including the data and transaction reviewed.
+
+### Xero attachment delivery
+
+Apply the new migrations before restarting the service. Existing approvals are returned to review because they lack an approval-time transaction snapshot; approve them again to queue uploads.
+
+The attachment worker runs at startup and every `receipt-interval`, independently of discovery. It reads the retained local or WebDAV original, verifies its hash, and enforces a conservative 10,000,000-byte size cap. Immediately before upload it fetches the target and checks its type, reconciliation, status, and approval-time amount/currency/date. A changed target returns to review with a reason.
+
+Uploads use PUT (never the replacement POST), a receipt-hash filename with its original extension, and a stable receipt/organisation/target idempotency key. Before retrying, the worker lists attachments and verifies the bytes of an existing matching filename. Confirmed uploads are not repeated. Failures remain visible and incomplete work is retried at the next interval; restore inaccessible originals before retrying.
+
+Once an upload is dispatched, its target is locked even if the response is uncertain. It cannot be redirected or cancelled through the review UI. Additional attachments or changes require explicit manual follow-up in Xero; there is no automatic target-change workflow. A changed target after an uncertain upload stays locked for investigation. Run only one service per database.
+
+Receipt pages show pending, failed, and confirmed attachment progress with the attachment ID and confirmation time. Archive and cleanup stay pending: attached does not mean complete or reconciled. No files are deleted. Live attachment validation and direct confirmation of Xero's bank-transaction size limit remain outstanding; see `docs/xero-api.md`. The UI shows the transaction identifier; an organisation-safe browser deep link has not been verified.
 
 ### Home-network access through Caddy
 
