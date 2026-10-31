@@ -100,9 +100,15 @@ func (s *Server) receipts(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusInternalServerError, err)
 		return
 	}
+	attachments, err := s.attachmentProgress(r.Context())
+	if err != nil {
+		s.fail(w, 500, err)
+		return
+	}
 	var items []receiptItem
 	for _, record := range records {
 		item := makeReceiptItem(record, reviews[record.SHA256])
+		item.Attachment = attachments[record.SHA256]
 		if r.URL.Query().Get("state") == "" || r.URL.Query().Get("state") == item.State {
 			items = append(items, item)
 		}
@@ -155,7 +161,14 @@ func (s *Server) receiptDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.render(w, http.StatusOK, "receipt.html", receiptDetailPage{Item: makeReceiptItem(record, reviews[record.SHA256]), History: history, Transactions: transactions, Query: r.URL.Query().Get("q")})
+	attachments, err := s.attachmentProgress(r.Context())
+	if err != nil {
+		s.fail(w, 500, err)
+		return
+	}
+	item := makeReceiptItem(record, reviews[record.SHA256])
+	item.Attachment = attachments[record.SHA256]
+	s.render(w, http.StatusOK, "receipt.html", receiptDetailPage{Item: item, History: history, Transactions: transactions, Query: r.URL.Query().Get("q")})
 }
 
 func (s *Server) receiptDocument(w http.ResponseWriter, r *http.Request) {

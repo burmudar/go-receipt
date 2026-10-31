@@ -14,9 +14,10 @@ import (
 
 type receiptItem struct {
 	receipt.Record
-	Review    receipt.Review
-	State     string
-	Effective *receipt.Analysis
+	Review     receipt.Review
+	State      string
+	Effective  *receipt.Analysis
+	Attachment receipt.Attachment
 }
 
 var titleDatePattern = regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}`)
@@ -67,7 +68,7 @@ func makeReceiptItem(r receipt.Record, review receipt.Review) receiptItem {
 	if review.Corrected != nil {
 		effective = review.Corrected
 	}
-	return receiptItem{r, review, state, effective}
+	return receiptItem{Record: r, Review: review, State: state, Effective: effective}
 }
 
 func (s *Server) correctReceipt(w http.ResponseWriter, r *http.Request) {

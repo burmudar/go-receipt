@@ -10,12 +10,12 @@
 <dt>Filename/title date</dt><dd>{{with .Item.TitleDate}}{{.}}{{else}}Not available{{end}}</dd>
 {{with .Item.Effective}}<dt>Extraction confidence</dt><dd>{{.Confidence}}</dd>{{end}}</dl>
 {{if eq .Item.State "approved"}}<p>Approved for {{.Item.Review.TransactionID}} (organisation {{.Item.Review.TenantID}}). Approval is not an upload.</p>{{end}}
-<h3>Delivery progress</h3><dl><dt>Xero attachment</dt><dd>Pending — not implemented</dd><dt>Paperless archive</dt><dd>Pending — not implemented</dd><dt>Intake cleanup</dt><dd>Pending — not implemented</dd></dl>
+<h3>Delivery progress</h3><dl><dt>Xero attachment</dt><dd>{{with .Item.Attachment.State}}{{.}}{{else}}Awaiting approval{{end}} {{.Item.Attachment.ID}} {{.Item.Attachment.CompletedAt}}{{with .Item.Attachment.Error}}<p class="error">{{.}}</p>{{end}}</dd><dt>Paperless archive</dt><dd>Pending — not implemented</dd><dt>Intake cleanup</dt><dd>Pending — not implemented</dd></dl>
 {{with .Item.Record.Analysis}}<details><summary>Original extraction</summary><p>{{.Merchant}} · {{.Total}} {{.Currency}} · {{.Date.Format "2006-01-02"}} · confidence {{.Confidence}}</p></details>{{end}}
 </div></div>
 {{if eq .Item.Status "extracted"}}
 {{if eq .Item.State "approved"}}
-<form method="post" action="/receipts/{{.Item.SHA256}}/decision"><button name="action" value="needs_review">Return approval to review</button></form>
+{{if .Item.Attachment.Locked}}<p>Upload started or confirmed. Target changes are locked; any additional attachment requires manual follow-up in Xero. This receipt is not complete until archive and cleanup finish.</p>{{else}}<form method="post" action="/receipts/{{.Item.SHA256}}/decision"><button name="action" value="needs_review">Return approval to review</button></form>{{end}}
 {{else}}
 <h3>Correct extracted data</h3>
 {{with .Item.Effective}}<form method="post" action="/receipts/{{$.Item.SHA256}}/correction">
