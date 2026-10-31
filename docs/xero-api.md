@@ -42,8 +42,8 @@ Milestone 2b uses these choices. Each one avoids a failure that a live organisat
 - **Upload:** `PUT /BankTransactions/{BankTransactionID}/Attachments/{FileName}` creates an attachment. The request body contains the file bytes as `application/octet-stream`. (Spec)
 - **Replace:** `POST` on the same path updates the attachment that has that file name. Use a file name that is unique for each receipt, for example one that includes the content hash. (Spec)
 - **List:** `GET /BankTransactions/{BankTransactionID}/Attachments` lists existing attachments. Use it to check an uncertain upload. (Spec)
-- **Retry:** attachment requests accept an `Idempotency-Key` header of up to 128 characters. Use a stable key for each receipt and target for safe retries in milestone 4. (Spec)
-- **Limits:** the search summaries give 10 attachments for each document. They give 10 MB or 25 MB for each file, and these values are not consistent. Confirm the limit for bank transactions before milestone 4. (Search)
+- **Retry:** attachment requests accept an `Idempotency-Key` header of up to 128 characters. Use a stable key for each receipt and target for safe retries in milestone 4a. (Spec)
+- **Limits:** the search summaries give 10 attachments for each document. They give 10 MB or 25 MB for each file, and these values are not consistent. Confirm the limit for bank transactions before milestone 4a. (Search)
 
 ## OAuth
 

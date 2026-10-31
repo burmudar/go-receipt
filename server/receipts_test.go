@@ -136,6 +136,24 @@ func TestBackgroundReceiptsAndPages(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
+	// Chromium's native PDF viewer cannot load in a sandboxed iframe. Keep
+	// sandboxing on the document response instead, along with MIME protection.
+	detail := request("/receipts/"+good.SHA256, cookie)
+	iframe := `<iframe title="Original receipt" src="/receipts/` + good.SHA256 + `/document"></iframe>`
+	if !strings.Contains(detail.Body.String(), iframe) {
+		t.Error("preview must use an iframe without the sandbox attribute for native PDF viewing")
+	}
+	document := request("/receipts/"+good.SHA256+"/document", cookie)
+	for header, want := range map[string]string{
+		"Content-Type":            "application/pdf",
+		"Content-Security-Policy": "default-src 'none'; sandbox",
+		"X-Content-Type-Options":  "nosniff",
+		"Cache-Control":           "no-store",
+	} {
+		if got := document.Header().Get(header); got != want {
+			t.Errorf("document %s = %q, want %q", header, got, want)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(dir, "good.pdf"), []byte("changed"), 0600); err != nil {
 		t.Fatal(err)
 	}
