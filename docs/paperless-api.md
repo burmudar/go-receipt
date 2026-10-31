@@ -44,7 +44,9 @@ SHA-256, and limits uploads/downloads to 10 MB (the attachment limit).
 - Existing or recovered checksum matches are verified the same way.
 - Receipt pages show archive state, errors, task and document references; the list
   can filter pending, failed and confirmed archives. Cleanup remains pending even
-  after archive confirmation. Intake files are never removed.
+  after archive confirmation. Intake files are never removed. Before an archive
+  record exists, the UI distinguishes waiting for extraction, approval, Xero
+  attachment, or the next archive cycle from Paperless actually being unconfigured.
 
 ## Recovery
 
@@ -56,6 +58,14 @@ Dispatch is persisted **before** sending the upload. If the response is lost, or
 the service crashes before saving the task UUID, subsequent runs search by the
 persisted checksum. An absent match does not prove the upload failed: it may still
 be queued. The service does not submit a second copy automatically.
+
+Definitive upload rejections (HTTP 400, 401, 403, 413 or 415) clear the dispatch
+flag so processing can retry after the configuration, credentials or input is
+corrected. Validation errors report known field names, never raw response bodies.
+Transport failures and HTTP 5xx responses remain uncertain and are not resent.
+Repeated uncertain recovery preserves the original upload error. Worker warnings
+are emitted separately for each receipt with its SHA-256, rather than one joined
+multiline error.
 
 Temporary source/read/search/metadata failures retry at the next interval.
 Known tasks continue to be polled after restart. Failed or missing tasks also

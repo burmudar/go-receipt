@@ -30,6 +30,7 @@ type fakePaperless struct {
 	uploads, patches                                int
 	visible, uncertain, wrongOriginal, patchFailure bool
 	taskStatus                                      string
+	uploadStatus                                    int
 	notes                                           []map[string]string
 }
 
@@ -49,6 +50,11 @@ func (f *fakePaperless) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "/api/documents/post_document/":
 		f.uploads++
+		if f.uploadStatus != 0 {
+			w.WriteHeader(f.uploadStatus)
+			io.WriteString(w, `{"tags":["Invalid pk; private-token must never be logged"]}`)
+			return
+		}
 		if err := r.ParseMultipartForm(20 << 20); err != nil {
 			f.t.Error(err)
 			return

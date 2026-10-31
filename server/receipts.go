@@ -115,6 +115,7 @@ func (s *Server) receipts(w http.ResponseWriter, r *http.Request) {
 		item := makeReceiptItem(record, reviews[record.SHA256])
 		item.Attachment = attachments[record.SHA256]
 		item.Archive = archives[record.SHA256]
+		item.ArchiveConfigured = s.archive != nil
 		if filter := r.URL.Query().Get("archive"); filter != "" {
 			state := item.Archive.State
 			if state == "" || state == "uploading" || state == "consuming" {
@@ -188,6 +189,7 @@ func (s *Server) receiptDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	item := makeReceiptItem(record, reviews[record.SHA256])
 	item.Archive = archives[record.SHA256]
+	item.ArchiveConfigured = s.archive != nil
 	item.Attachment = attachments[record.SHA256]
 	s.render(w, http.StatusOK, "receipt.html", receiptDetailPage{Item: item, History: history, Transactions: transactions, Query: r.URL.Query().Get("q")})
 }

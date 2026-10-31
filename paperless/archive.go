@@ -60,6 +60,35 @@ func New(db *sql.DB, cfg Config) (*Manager, error) {
 
 const maxBytes = 10_000_000
 
+// ReceiptFailure retains identity without leaking source paths or remote response bodies.
+type ReceiptFailure struct {
+	SHA256 string
+	Err    error
+}
+type BatchError struct{ Failures []ReceiptFailure }
+
+func (e *BatchError) Error() string {
+	return fmt.Sprintf("%d receipt archives failed", len(e.Failures))
+}
+func (e *BatchError) Unwrap() []error {
+	var errs []error
+	for _, f := range e.Failures {
+		errs = append(errs, f.Err)
+	}
+	return errs
+}
+
+type responseError struct {
+	status int
+	fields string
+}
+
+func (e *responseError) Error() string {
+	return fmt.Sprintf("Paperless returned HTTP %d%s", e.status, e.fields)
+}
+
+var errUncertainUpload = errors.New("uncertain Paperless upload; no checksum match yet; automatic resubmission blocked")
+
 func (m *Manager) request(ctx context.Context, method, path, kind string, body []byte) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, m.cfg.URL+"/api/"+path, bytes.NewReader(body))
 	if err != nil {
@@ -76,7 +105,24 @@ func (m *Manager) request(ctx context.Context, method, path, kind string, body [
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Paperless returned HTTP %d", resp.StatusCode)
+		e := &responseError{status: resp.StatusCode}
+		// Only report known field names, never server-provided values or error messages.
+		if resp.StatusCode == http.StatusBadRequest {
+			data, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+			var fields map[string]json.RawMessage
+			if json.Unmarshal(data, &fields) == nil {
+				var names []string
+				for _, name := range []string{"tags", "document", "title", "created"} {
+					if _, ok := fields[name]; ok {
+						names = append(names, name)
+					}
+				}
+				if len(names) > 0 {
+					e.fields = "; invalid fields: " + strings.Join(names, ", ")
+				}
+			}
+		}
+		return nil, e
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil || len(data) > maxBytes {
@@ -86,9 +132,9 @@ func (m *Manager) request(ctx context.Context, method, path, kind string, body [
 }
 
 type job struct {
-	hash, source, name, tenant, target, task, checksum, endpoint string
-	dispatched                                                   bool
-	analysis                                                     receipt.Analysis
+	hash, source, name, tenant, target, task, checksum, endpoint, previousError string
+	dispatched                                                                  bool
+	analysis                                                                    receipt.Analysis
 }
 
 // Process resumes only incomplete archive work. Dispatch is recorded before POST.
@@ -100,7 +146,7 @@ func (m *Manager) Process(ctx context.Context, source receipt.Source) error {
 	if err != nil {
 		return err
 	}
-	rows, err := m.db.QueryContext(ctx, `SELECT a.receipt_sha256,r.source,r.name,x.tenant_id,x.transaction_id,a.task_id,a.checksum,a.endpoint,a.dispatched,COALESCE(v.corrected_analysis,r.analysis) FROM receipt_archive a JOIN receipt r ON r.sha256=a.receipt_sha256 JOIN receipt_attachment x ON x.receipt_sha256=a.receipt_sha256 JOIN receipt_review v ON v.receipt_sha256=a.receipt_sha256 WHERE a.state!='confirmed' AND x.state='confirmed'`)
+	rows, err := m.db.QueryContext(ctx, `SELECT a.receipt_sha256,r.source,r.name,x.tenant_id,x.transaction_id,a.task_id,a.checksum,a.endpoint,a.last_error,a.dispatched,COALESCE(v.corrected_analysis,r.analysis) FROM receipt_archive a JOIN receipt r ON r.sha256=a.receipt_sha256 JOIN receipt_attachment x ON x.receipt_sha256=a.receipt_sha256 JOIN receipt_review v ON v.receipt_sha256=a.receipt_sha256 WHERE a.state!='confirmed' AND x.state='confirmed'`)
 	if err != nil {
 		return err
 	}
@@ -108,7 +154,7 @@ func (m *Manager) Process(ctx context.Context, source receipt.Source) error {
 	for rows.Next() {
 		var j job
 		var analysis string
-		if err = rows.Scan(&j.hash, &j.source, &j.name, &j.tenant, &j.target, &j.task, &j.checksum, &j.endpoint, &j.dispatched, &analysis); err != nil {
+		if err = rows.Scan(&j.hash, &j.source, &j.name, &j.tenant, &j.target, &j.task, &j.checksum, &j.endpoint, &j.previousError, &j.dispatched, &analysis); err != nil {
 			break
 		}
 		if err = json.Unmarshal([]byte(analysis), &j.analysis); err != nil {
@@ -123,17 +169,20 @@ func (m *Manager) Process(ctx context.Context, source receipt.Source) error {
 	if err != nil {
 		return err
 	}
-	var failures []error
+	var failures []ReceiptFailure
 	for _, j := range jobs {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		if err = m.archive(ctx, source, j); err != nil {
-			_, saveErr := m.db.ExecContext(context.WithoutCancel(ctx), `UPDATE receipt_archive SET state='failed',last_error=? WHERE receipt_sha256=? AND state!='confirmed'`, err.Error(), j.hash)
-			failures = append(failures, errors.Join(err, saveErr))
+			_, saveErr := m.db.ExecContext(context.WithoutCancel(ctx), `UPDATE receipt_archive SET state='failed',last_error=CASE WHEN ? AND last_error!='' THEN last_error ELSE ? END WHERE receipt_sha256=? AND state!='confirmed'`, errors.Is(err, errUncertainUpload), err.Error(), j.hash)
+			failures = append(failures, ReceiptFailure{SHA256: j.hash, Err: errors.Join(err, saveErr)})
 		}
 	}
-	return errors.Join(failures...)
+	if len(failures) > 0 {
+		return &BatchError{Failures: failures}
+	}
+	return nil
 }
 func (m *Manager) archive(ctx context.Context, source receipt.Source, j job) error {
 	if j.endpoint != m.cfg.URL {
@@ -188,7 +237,10 @@ func (m *Manager) archive(ctx context.Context, source receipt.Source, j job) err
 		}
 	}
 	if j.dispatched {
-		return fmt.Errorf("uncertain Paperless upload; no checksum match yet; automatic resubmission blocked")
+		if j.previousError != "" && !strings.Contains(j.previousError, errUncertainUpload.Error()) {
+			return fmt.Errorf("%w; original failure: %s", errUncertainUpload, j.previousError)
+		}
+		return errUncertainUpload
 	}
 	if source == nil {
 		return fmt.Errorf("receipt source is not configured")
@@ -237,6 +289,16 @@ func (m *Manager) archive(ctx context.Context, source receipt.Source, j job) err
 	}
 	response, err := m.request(ctx, "POST", "documents/post_document/", w.FormDataContentType(), body.Bytes())
 	if err != nil {
+		var rejection *responseError
+		if errors.As(err, &rejection) {
+			switch rejection.status {
+			case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestEntityTooLarge, http.StatusUnsupportedMediaType:
+				// Paperless rejected the request before enqueuing consumption. Other failures
+				// (including 5xx and lost responses) remain uncertain and must not be resent.
+				_, saveErr := m.db.ExecContext(context.WithoutCancel(ctx), `UPDATE receipt_archive SET dispatched=0 WHERE receipt_sha256=? AND task_id=''`, j.hash)
+				return errors.Join(err, saveErr)
+			}
+		}
 		return err
 	}
 	var task string

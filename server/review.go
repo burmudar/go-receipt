@@ -14,11 +14,12 @@ import (
 
 type receiptItem struct {
 	receipt.Record
-	Review     receipt.Review
-	State      string
-	Effective  *receipt.Analysis
-	Attachment receipt.Attachment
-	Archive    receipt.Archive
+	Review            receipt.Review
+	State             string
+	Effective         *receipt.Analysis
+	Attachment        receipt.Attachment
+	Archive           receipt.Archive
+	ArchiveConfigured bool
 }
 
 var titleDatePattern = regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}`)
