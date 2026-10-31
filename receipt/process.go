@@ -48,6 +48,10 @@ func (s *Store) Process(ctx context.Context, source Source, scanner Scanner, ret
 		}
 
 		analysis, scanErr := extract(ctx, source, scanner, r)
+		// Cancellation is not an extraction failure; leave the record pending for restart.
+		if ctx.Err() != nil {
+			return progress, ctx.Err()
+		}
 
 		if err := s.finish(ctx, r.SHA256, analysis, scanErr); err != nil {
 			return progress, fmt.Errorf("save receipt %s: %w", r.SHA256, err)

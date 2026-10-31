@@ -247,7 +247,26 @@ func TestXeroConnectionThroughBrowser(t *testing.T) {
 		t.Fatalf("status page does not show the connection:\n%s", page)
 	}
 
-	expect(do(srv, http.MethodPost, "/xero/transactions/refresh", url.Values{}), http.StatusSeeOther, "/")
+	// A background refresh fetches transactions without a browser action.
+	refreshCtx, cancelRefresh := context.WithCancel(ctx)
+	refreshed := make(chan struct{})
+	go func() { srv.refreshPeriodically(refreshCtx); close(refreshed) }()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		summary, err := srv.xero.BankTransactionSummary(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if summary.Stored == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("background refresh did not finish")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancelRefresh()
+	<-refreshed
 	if page := statusPage(srv); !strings.Contains(page, "1 spend and receive transactions, 1 reconciled and authorised") {
 		t.Fatalf("status page does not show the refreshed transactions:\n%s", page)
 	}
