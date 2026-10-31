@@ -1,0 +1,31 @@
+# Paths in this file are relative to the TOML file, not the shell's directory.
+# Copy this file and create the secret files with restrictive permissions.
+[server]
+database = "app.db"
+listen = "127.0.0.1:11211"
+# public_url defaults to http://localhost:<listen port>.
+# public_url = "https://receipts.home.arpa"
+# A password file is optional for localhost and required for home-network access.
+# password_file = "secrets/ui-password"
+request_timeout = "1m"
+xero_timeout = "20s"
+check_interval = "24h"
+
+[receipts]
+directory = "inbox"
+interval = "1m"
+
+[openai]
+api_key_file = "secrets/openai-key"
+model = "gpt-5.5"
+timeout = "2m"
+
+# Optional. Remove the comment markers to enable WebDAV input.
+# [webdav]
+# url = "https://storage.example.com/dav/"
+# username = "your-user"
+# password_file = "secrets/webdav-password"
+# inbox = "inbox"
+
+[xero]
+transaction_interval = "15m"
