@@ -53,6 +53,24 @@ func localFiles(ctx context.Context, dir string) (iter.Seq2[receipt.File, error]
 	}, nil
 }
 
+// LocalFiles discovers top-level regular files in a local intake folder.
+func LocalFiles(ctx context.Context, dir string) (iter.Seq2[receipt.File, error], error) {
+	return localFiles(ctx, dir)
+}
+
+// LocalSource reads persisted local intake locations.
+type LocalSource struct{}
+
+func (LocalSource) Read(ctx context.Context, location string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !filepath.IsAbs(location) {
+		return nil, fmt.Errorf("not a local receipt source")
+	}
+	return os.ReadFile(location)
+}
+
 // sourceReader reloads persisted source locations. WebDAV credentials are only
 // sent to the configured endpoint, never to an arbitrary URL from the database.
 type sourceReader struct {

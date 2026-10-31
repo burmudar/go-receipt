@@ -1,6 +1,6 @@
 # go-receipt
 
-Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command runs the service and connects Xero through the browser. Xero transaction access, attachment upload, Paperless archiving, intake cleanup, and the review UI are planned in [milestone.md](milestone.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
+Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command imports local receipts in the background, provides receipt pages, and connects Xero through the browser. Attachment upload, Paperless archiving, intake cleanup, and the review UI are planned in [milestone.md](milestone.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
 
 ## Setup
 
@@ -63,7 +63,7 @@ Retries read the saved source locations and verify each file against its recorde
 - A failure does not stop extraction of other receipts. The command prints a JSON summary and exits with an error if that run had failures.
 - Files that cannot be read or imported are reported as import errors. They do not have saved receipt records and must be imported again after the source problem is fixed.
 - Totals remain decimal strings in extraction JSON and SQLite. They are not converted to floating-point values.
-- Run only one scan or retry command per database at a time. Concurrent worker coordination is not implemented.
+- Run only one receipt processor per database at a time. Stop the service before running `scan` or `scan retry`; concurrent worker coordination is not implemented.
 
 ## WebDAV input
 
@@ -120,8 +120,10 @@ go run . oauth get --name Xero
 Run the service on the media PC:
 
 ```sh
-go run . serve
+go run . serve --dir ./inbox
 ```
+
+Set `OPENAI_API_KEY` or use `--api-key-file` as for `scan`. The service imports and extracts pending local receipts immediately and then every minute; `--receipt-interval` changes the interval. Without `--dir`, receipt import is disabled. Failed extractions remain visible and are not retried automatically; stop the service and use `scan retry` to retry them. View originals and extraction results under **View receipts**. The document is read from the retained source and is refused if its hash has changed. The service currently supports local sources for background import and preview; WebDAV remains available through the scan CLI.
 
 The service listens on `127.0.0.1:11211`. The default public URL is `http://localhost:11211`. Open the status page, select **Connect to Xero**, and authorise the organisation. The service uses one organisation, so authorise exactly one. If more than one organisation is connected to the Xero app, the connection fails. Disconnect the app from the other organisations in Xero, then connect again. To change the organisation, select **Disconnect** and connect again.
 
@@ -131,7 +133,7 @@ The service checks the connection every 24 hours. Each check refreshes the token
 
 ### Bank transactions
 
-Select **Refresh transactions** on the status page to fetch bank transactions from Xero. The first refresh fetches all transactions. Each later refresh fetches only the transactions that changed since the last complete refresh. The service stores `SPEND` and `RECEIVE` transactions, including deleted and voided ones. Only reconciled, authorised transactions can receive a receipt. Select **View transactions** to see the latest 500.
+The service refreshes bank transactions in the background at startup and every 15 minutes while connected; use `--transaction-interval` to change the interval. **Refresh transactions** also starts a manual refresh. The first refresh fetches all transactions. Each later refresh fetches only the transactions that changed since the last complete refresh. The service stores `SPEND` and `RECEIVE` transactions, including deleted and voided ones. Only reconciled, authorised transactions can receive a receipt. Select **View transactions** to see the latest 500.
 
 A refresh saves each page when it arrives. If a refresh fails, the status page shows the error, and the next refresh starts again from the last complete refresh. A short rate-limit response delays the refresh. The daily limit stops it.
 
@@ -155,7 +157,7 @@ Set a password, then start the service with the Caddy address:
 ```sh
 umask 077
 printf '%s\n' 'a long password' > .rcpt-password
-go run . serve --public-url https://receipts.home.arpa
+go run . serve --dir ./inbox --public-url https://receipts.home.arpa
 ```
 
 `RCPT_PASSWORD` takes precedence over `--password-file`. The service does not start without a password if the public URL or the listen address is not local. A restart ends all login sessions. Do not expose the service to the internet.
