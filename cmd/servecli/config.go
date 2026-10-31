@@ -12,6 +12,12 @@ import (
 // serviceFile is intentionally separate from runtime settings: it accepts only
 // file paths for secrets, and durations use the same syntax as CLI flags.
 type serviceFile struct {
+	Paperless struct {
+		URL       *string `toml:"url"`
+		TokenFile *string `toml:"token_file"`
+		Tags      *string `toml:"tags"`
+		Timeout   *string `toml:"timeout"`
+	} `toml:"paperless"`
 	Server struct {
 		Database       *string `toml:"database"`
 		Listen         *string `toml:"listen"`
@@ -82,6 +88,10 @@ func applyConfig(cmd *cobra.Command, filename string, database *string) error {
 		value *string
 		path  bool
 	}{
+		{"paperless-url", config.Paperless.URL, false},
+		{"paperless-token-file", config.Paperless.TokenFile, true},
+		{"paperless-tags", config.Paperless.Tags, false},
+		{"paperless-timeout", config.Paperless.Timeout, false},
 		{"listen", config.Server.Listen, false},
 		{"public-url", config.Server.PublicURL, false},
 		{"password-file", config.Server.PasswordFile, true},

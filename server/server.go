@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/burmudar/go-receipt/db/oauth"
+	"github.com/burmudar/go-receipt/paperless"
 	"github.com/burmudar/go-receipt/receipt"
 	"github.com/burmudar/go-receipt/xero"
 )
@@ -25,7 +26,8 @@ import (
 const callbackPath = "/xero/callback"
 
 type Config struct {
-	DB *sql.DB
+	DB        *sql.DB
+	Paperless paperless.Config
 	// Listen is the TCP address for the HTTP server, for example 127.0.0.1:11211.
 	Listen string
 	// PublicURL is the address that browsers use, for example the Caddy HTTPS address.
@@ -51,6 +53,7 @@ type Config struct {
 
 type Server struct {
 	cfg                Config
+	archive            *paperless.Manager
 	auth               *auth
 	xero               *xero.Manager
 	setupErr           error
@@ -131,6 +134,12 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	s := &Server{cfg: cfg, auth: a, pages: pages}
+	if cfg.Paperless.URL != "" {
+		s.archive, err = paperless.New(cfg.DB, cfg.Paperless)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	client, err := oauth.NewStore(cfg.DB).GetByName("Xero")
 	switch {
@@ -223,6 +232,9 @@ func (s *Server) Run(ctx context.Context) error {
 		start(s.checkPeriodically)
 		start(s.refreshPeriodically)
 		start(s.attachPeriodically)
+	}
+	if s.archive != nil {
+		start(s.archivePeriodically)
 	}
 	if s.cfg.Discover != nil {
 		start(s.processPeriodically)
