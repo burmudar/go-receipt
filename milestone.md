@@ -210,6 +210,8 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 ## Milestone 4b: Paperless archive
 
+**Status:** Implemented with real SQLite and a controlled Paperless API. A synthetic PDF also passed live upload, consumption, original SHA-256 verification, final metadata, checksum recovery after a lost task reference, and duplicate rejection on the configured Paperless instance. The test document and tag were removed afterward (Paperless trash retention may apply). Xero confirmation was seeded in an isolated test database; no live Xero request or real receipt was used. Intake files remain retained. Automatic resubmission does not rely on duplicate rejection. `go test ./...`, `go vet ./...`, and `go test -race ./paperless ./server ./cmd/servecli` pass. See [setup and recovery](docs/paperless-api.md).
+
 **Outcome:** A receipt with a confirmed Xero attachment is archived in Paperless with its final metadata and a durable document reference. Intake files remain untouched.
 
 **Depends on:** Milestone 4a's confirmed attachment records. Archive failures and retries must not repeat a confirmed Xero upload.
@@ -225,11 +227,12 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 ### Done when
 
-- [ ] Paperless contains the original receipt with final tags, corrected metadata, and transaction references after confirmed Xero attachment.
-- [ ] The saved task and document references distinguish upload acceptance from successful consumption.
-- [ ] A retry or restart, including after an uncertain upload response, does not create a duplicate archive document or repeat the confirmed Xero upload.
-- [ ] A failed Paperless archive is visible in the UI and leaves the intake file intact. Processing can resume after recovery.
-- [ ] A successful archive is visible in the UI, with cleanup still pending and the intake file still intact.
+- [x] Paperless contains the original receipt with final tags, corrected metadata, and transaction references after confirmed Xero attachment (controlled API).
+- [x] The saved task and document references distinguish upload acceptance from successful consumption (controlled API).
+- [x] A retry or restart, including after an uncertain upload response, does not create a duplicate archive document or alter the confirmed Xero attachment (controlled API).
+- [x] A failed Paperless archive is visible in the UI and leaves the intake file intact. Processing can resume after recovery (controlled API; terminal consumption failures without a checksum match require manual follow-up).
+- [x] A successful archive is visible in the UI, with cleanup still pending and the intake file still intact (controlled API).
+- [x] Validate consumption, final metadata and duplicate rejection against live Paperless (synthetic PDF; isolated SQLite and seeded Xero attachment confirmation).
 
 ## Milestone 4c: Safe intake cleanup and completion
 

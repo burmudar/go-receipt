@@ -1,6 +1,6 @@
 # go-receipt
 
-Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command imports local and WebDAV receipts in the background, provides receipt pages, and connects Xero through the browser. Manual review decisions are available in the receipt pages. Approved receipts are uploaded to Xero with durable confirmation and retry recovery. Paperless archiving and intake cleanup are planned in [milestone.md](milestone.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
+Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command imports local and WebDAV receipts in the background, provides receipt pages, and connects Xero through the browser. Manual review decisions are available in the receipt pages. Approved receipts are uploaded to Xero with durable confirmation and retry recovery. Confirmed Xero attachments can be archived in Paperless with durable task and document tracking. Intake cleanup remains planned in [milestone.md](milestone.md). See [Paperless setup and recovery](docs/paperless-api.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
 
 ## Setup
 
@@ -54,7 +54,7 @@ Retries read the saved source locations and verify each file against its recorde
 
 - A SHA-256 content hash identifies each receipt across input sources. Importing identical bytes does not create another record or reset an existing result.
 - SQLite stores the first source location, not the original bytes. Keep intake files at their original paths and do not replace their contents during processing.
-- There is no separate staging directory. This version does not delete intake files or upload to Paperless.
+- There is no separate staging directory. This version can archive attached receipts in Paperless, but never deletes intake files.
 - A changed source, or a missing local file, is recorded as a failure. An unconfigured or temporarily unavailable WebDAV source leaves a pending receipt pending. Restore the original before retrying; no extraction request is sent until the hash matches.
 - `pending` means the receipt record is saved but has no completed extraction.
 - `extracted` means the extraction passed field validation. It does not mean approved, matched, attached, or reconciled.
@@ -104,7 +104,7 @@ WebDAV or the local directory holds work in progress. Paperless holds the comple
 
 Xero attachment, Paperless archiving, and cleanup need separate persisted progress. A failed archive must not repeat a successful Xero upload. Unmatched and pending receipts stay in the intake. Ignored receipts require an explicit retention decision.
 
-Xero attachment is implemented in milestone 4a; Paperless and cleanup remain planned.
+Xero attachment and Paperless archiving are implemented in milestones 4a and 4b; intake cleanup remains planned for 4c.
 
 ## Service and Xero connection
 
@@ -169,7 +169,7 @@ A refresh saves each page when it arrives. If a refresh fails, the status page s
 
 Open **View receipts** to filter by processing and review status. For an extracted receipt, correct its merchant, amount, currency, or date without overwriting the original extraction. Search stored transactions by contact, reference, account, date, amount, or ID, then approve or reject a selected transaction. Approval is limited to reconciled, authorised transactions in the connected organisation; it queues an attachment upload without changing reconciliation in Xero. Only the latest 100 search results are shown; narrow the search to find older transactions.
 
-A receipt can be marked unmatched while it waits for reconciliation in Xero, or ignored. **Ignored receipts remain in the intake**; the decision and retention choice are recorded in the review history. No files are archived or deleted by this milestone. Before upload starts, return an approval to review to edit it or disconnect the Xero organisation. Corrections and decisions have a timestamped history, including the data and transaction reviewed.
+A receipt can be marked unmatched while it waits for reconciliation in Xero, or ignored. **Ignored receipts remain in the intake**; the decision and retention choice are recorded in the review history. Ignored receipts are neither archived nor deleted. Confirmed attachments can be archived when Paperless is configured; intake deletion is not implemented. Before upload starts, return an approval to review to edit it or disconnect the Xero organisation. Corrections and decisions have a timestamped history, including the data and transaction reviewed.
 
 ### Xero attachment delivery
 

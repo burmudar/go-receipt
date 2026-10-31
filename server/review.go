@@ -18,6 +18,7 @@ type receiptItem struct {
 	State      string
 	Effective  *receipt.Analysis
 	Attachment receipt.Attachment
+	Archive    receipt.Archive
 }
 
 var titleDatePattern = regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}`)

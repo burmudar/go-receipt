@@ -1,6 +1,8 @@
 .direnv/
 .storage-password
 .openai-password
+.paperless-password
+.papersless-password
 .xero-oauth
 *.db
 *.db-*
