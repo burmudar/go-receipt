@@ -2,7 +2,8 @@
 <p><a href="/receipts">All receipts</a> · <a href="/">Status</a></p>
 <h2>{{.Item.Name}}</h2>
 <div class="receipt-detail">
-<div><iframe title="Original receipt" sandbox src="/receipts/{{.Item.SHA256}}/document"></iframe><p><a href="/receipts/{{.Item.SHA256}}/document">Open original</a></p></div>
+{{/* An iframe sandbox blocks Chromium's native PDF viewer. The document endpoint retains its CSP sandbox and MIME checks. */}}
+<div><iframe title="Original receipt" src="/receipts/{{.Item.SHA256}}/document"></iframe><p><a href="/receipts/{{.Item.SHA256}}/document">Open original</a></p></div>
 <div><dl><dt>Extraction</dt><dd>{{.Item.Status}}</dd>{{if .Item.LastError}}<dt>Error</dt><dd class="error">{{.Item.LastError}}</dd>{{end}}
 <dt>Review</dt><dd>{{.Item.State}}</dd>
 {{with .Item.Effective}}<dt>Merchant</dt><dd>{{.Merchant}}</dd><dt>Total</dt><dd>{{.Total}} {{.Currency}}</dd><dt>Date</dt><dd>{{.Date.Format "2006-01-02"}}</dd><dt>Extraction confidence</dt><dd>{{.Confidence}}</dd>{{end}}</dl>
