@@ -14,8 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/burmudar/go-receipt/cmd/scancli"
 	"github.com/burmudar/go-receipt/db"
+	"github.com/burmudar/go-receipt/extract"
+	"github.com/burmudar/go-receipt/intake"
 	"github.com/burmudar/go-receipt/receipt"
 	"github.com/burmudar/go-receipt/server"
 	"github.com/spf13/cobra"
@@ -26,6 +27,7 @@ func Cmd(database *string) *cobra.Command {
 	var listen, publicURL, passwordFile string
 	var requestTimeout, xeroTimeout, checkInterval time.Duration
 	var folder, apiKeyFile, model string
+	var webDAVURL, webDAVUser, webDAVPasswordFile, webDAVInbox string
 	var receiptInterval, transactionInterval, extractionTimeout time.Duration
 
 	cmd := &cobra.Command{
@@ -69,9 +71,22 @@ to the proxy address and set a password with RCPT_PASSWORD or --password-file.`,
 			if receiptInterval <= 0 || transactionInterval <= 0 {
 				return fmt.Errorf("worker intervals must be positive")
 			}
+			var webDAV *intake.WebDAVInput
+			if webDAVURL != "" {
+				secret, err := readNamedSecret("WEBDAV_PASSWORD", webDAVPasswordFile)
+				if err != nil {
+					return err
+				}
+				webDAV, err = intake.NewWebDAVInput(webDAVURL, webDAVUser, secret, webDAVInbox)
+				if err != nil {
+					return err
+				}
+			} else if webDAVUser != "" {
+				return fmt.Errorf("--webdav-url is required with --webdav-user")
+			}
 			var discover func(context.Context) (iter.Seq2[receipt.File, error], error)
 			var scanner receipt.Scanner
-			if folder != "" {
+			if folder != "" || webDAV != nil {
 				key, err := readSecret(apiKeyFile)
 				if err != nil {
 					return err
@@ -79,13 +94,13 @@ to the proxy address and set a password with RCPT_PASSWORD or --password-file.`,
 				if extractionTimeout <= 0 || strings.TrimSpace(model) == "" {
 					return fmt.Errorf("extraction timeout must be positive and model must not be empty")
 				}
-				openai, err := scancli.NewReceiptScanner(key, model)
+				openai, err := extract.NewScanner(key, model)
 				if err != nil {
 					return err
 				}
 				scanner = timedScanner{openai, extractionTimeout}
 				discover = func(ctx context.Context) (iter.Seq2[receipt.File, error], error) {
-					return scancli.LocalFiles(ctx, folder)
+					return intake.DiscoverSources(ctx, folder, webDAV)
 				}
 			}
 			srv, err := server.New(server.Config{
@@ -97,7 +112,7 @@ to the proxy address and set a password with RCPT_PASSWORD or --password-file.`,
 				XeroTimeout:         xeroTimeout,
 				CheckInterval:       checkInterval,
 				Discover:            discover,
-				Source:              scancli.LocalSource{},
+				Source:              intake.MixedSource{WebDAV: webDAV},
 				Scanner:             scanner,
 				ReceiptInterval:     receiptInterval,
 				TransactionInterval: transactionInterval,
@@ -114,6 +129,10 @@ to the proxy address and set a password with RCPT_PASSWORD or --password-file.`,
 
 	flags := cmd.Flags()
 	flags.StringVar(&folder, "dir", "", "Local receipt folder to import in the background")
+	flags.StringVar(&webDAVURL, "webdav-url", "", "WebDAV server URL")
+	flags.StringVar(&webDAVUser, "webdav-user", "", "WebDAV username")
+	flags.StringVar(&webDAVPasswordFile, "webdav-password-file", ".storage-password", "WebDAV password file; WEBDAV_PASSWORD takes precedence")
+	flags.StringVar(&webDAVInbox, "webdav-inbox", "inbox", "WebDAV inbox path relative to endpoint")
 	flags.StringVar(&apiKeyFile, "api-key-file", ".openai-password", "OpenAI key file; OPENAI_API_KEY takes precedence")
 	flags.StringVar(&model, "model", "gpt-5.5", "OpenAI extraction model")
 	flags.DurationVar(&extractionTimeout, "extraction-timeout", 2*time.Minute, "Timeout per receipt extraction")
@@ -140,17 +159,21 @@ func (s timedScanner) Scan(ctx context.Context, file receipt.File) (receipt.Anal
 }
 
 func readSecret(filename string) (string, error) {
-	value := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	return readNamedSecret("OPENAI_API_KEY", filename)
+}
+
+func readNamedSecret(env, filename string) (string, error) {
+	value := strings.TrimSpace(os.Getenv(env))
 	if value != "" {
 		return value, nil
 	}
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return "", fmt.Errorf("set OPENAI_API_KEY or provide a readable secret file: %w", err)
+		return "", fmt.Errorf("set %s or provide a readable secret file: %w", env, err)
 	}
 	value = strings.TrimSpace(string(data))
 	if value == "" {
-		return "", fmt.Errorf("OpenAI key file is empty")
+		return "", fmt.Errorf("%s secret file is empty", env)
 	}
 	return value, nil
 }

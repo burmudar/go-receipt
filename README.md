@@ -1,6 +1,6 @@
 # go-receipt
 
-Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command imports local receipts in the background, provides receipt pages, and connects Xero through the browser. Manual review decisions are available in the receipt pages. Attachment upload, Paperless archiving, and intake cleanup are planned in [milestone.md](milestone.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
+Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command imports local and WebDAV receipts in the background, provides receipt pages, and connects Xero through the browser. Manual review decisions are available in the receipt pages. Attachment upload, Paperless archiving, and intake cleanup are planned in [milestone.md](milestone.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
 
 ## Setup
 
@@ -55,7 +55,7 @@ Retries read the saved source locations and verify each file against its recorde
 - A SHA-256 content hash identifies each receipt across input sources. Importing identical bytes does not create another record or reset an existing result.
 - SQLite stores the first source location, not the original bytes. Keep intake files at their original paths and do not replace their contents during processing.
 - There is no separate staging directory. This version does not delete intake files or upload to Paperless.
-- A missing or changed source is recorded as a failure. Restore the original file before retrying. No extraction request is sent for that receipt until the hash matches.
+- A changed source, or a missing local file, is recorded as a failure. An unconfigured or temporarily unavailable WebDAV source leaves a pending receipt pending. Restore the original before retrying; no extraction request is sent until the hash matches.
 - `pending` means the receipt record is saved but has no completed extraction.
 - `extracted` means the extraction passed field validation. It does not mean approved, matched, attached, or reconciled.
 - `failed` means source access, source verification, extraction, or validation failed. `scan list` includes the error and attempt count.
@@ -78,7 +78,7 @@ go run . scan \
   --webdav-inbox inbox
 ```
 
-Use `--webdav-password-file` to select a different secret file. Do not put credentials in the URL. Choose either `--dir` or `--webdav-url`, not both.
+Use `--webdav-password-file` to select a different secret file. Do not put credentials in the URL. For the `scan` CLI, choose either `--dir` or `--webdav-url`, not both.
 
 Retry previously imported WebDAV receipts without listing the inbox again:
 
@@ -123,7 +123,16 @@ Run the service on the media PC:
 go run . serve --dir ./inbox
 ```
 
-Set `OPENAI_API_KEY` or use `--api-key-file` as for `scan`. The service imports and extracts pending local receipts immediately and then every minute; `--receipt-interval` changes the interval. Without `--dir`, receipt import is disabled. Failed extractions remain visible and are not retried automatically; stop the service and use `scan retry` to retry them. View originals and extraction results under **View receipts**. The document is read from the retained source and is refused if its hash has changed. The service currently supports local sources for background import and preview; WebDAV remains available through the scan CLI.
+Set `OPENAI_API_KEY` or use `--api-key-file` as for `scan`. The service imports and extracts pending receipts immediately and then every minute; `--receipt-interval` changes the interval. Without either `--dir` or `--webdav-url`, background receipt import is disabled. Failed extractions remain visible and are not retried automatically; stop the service and use `scan retry` to retry them. View originals and extraction results under **View receipts**. The document is read from the retained source and is refused if its hash has changed.
+
+To use WebDAV in the running service, set `WEBDAV_PASSWORD` or `--webdav-password-file` and run:
+
+```sh
+go run . serve --webdav-url https://storage.example.com/dav/ \
+  --webdav-user your-user --webdav-inbox inbox
+```
+
+You may also supply `--dir` to discover local and WebDAV receipts together. Identical content is imported only once, retaining the first source location. Keep that original accessible: a duplicate at another location does not replace it. Requests are restricted to the configured endpoint; redirects are not followed. Configure the same WebDAV endpoint to read previously imported WebDAV sources. Pending records whose source is unconfigured or temporarily unavailable remain pending and are retried on the next pass; discovery and processing errors appear on the status page and in service logs. A changed source fails hash verification and requires restoring the original and running `scan retry` with its source configuration.
 
 The service listens on `127.0.0.1:11211`. The default public URL is `http://localhost:11211`. Open the status page, select **Connect to Xero**, and authorise the organisation. The service uses one organisation, so authorise exactly one. If more than one organisation is connected to the Xero app, the connection fails. Disconnect the app from the other organisations in Xero, then connect again. To change the organisation, select **Disconnect** and connect again.
 

@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/burmudar/go-receipt/cmd/scancli"
 	"github.com/burmudar/go-receipt/db"
 	"github.com/burmudar/go-receipt/db/oauth"
+	"github.com/burmudar/go-receipt/intake"
 	"github.com/burmudar/go-receipt/receipt"
 	"github.com/pressly/goose/v3"
 )
@@ -66,13 +66,13 @@ func TestManualReviewWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Process(ctx, scancli.LocalSource{}, &testScanner{}, false); err != nil {
+	if _, err := store.Process(ctx, intake.LocalSource{}, &testScanner{}, false); err != nil {
 		t.Fatal(err)
 	}
 	public, _ := url.Parse("https://receipts.home.arpa")
 	makeServer := func() *Server {
 		t.Helper()
-		s, err := New(Config{DB: conn, Listen: "127.0.0.1:0", PublicURL: public, Password: "password", RequestTimeout: time.Second, XeroTimeout: time.Second, CheckInterval: time.Hour, Source: scancli.LocalSource{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+		s, err := New(Config{DB: conn, Listen: "127.0.0.1:0", PublicURL: public, Password: "password", RequestTimeout: time.Second, XeroTimeout: time.Second, CheckInterval: time.Hour, Source: intake.LocalSource{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 		if err != nil {
 			t.Fatal(err)
 		}
