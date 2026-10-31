@@ -1,9 +1,41 @@
 {{template "head" "wide"}}
 <p><a href="/receipts">All receipts</a> · <a href="/">Status</a></p>
-<h2>{{.Name}}</h2>
+<h2>{{.Item.Name}}</h2>
 <div class="receipt-detail">
-<div><iframe title="Original receipt" sandbox src="/receipts/{{.SHA256}}/document"></iframe><p><a href="/receipts/{{.SHA256}}/document">Open original</a></p></div>
-<div><dl><dt>Status</dt><dd>{{.Status}}</dd>{{if .LastError}}<dt>Error</dt><dd class="error">{{.LastError}}</dd>{{end}}
-{{with .Analysis}}<dt>Merchant</dt><dd>{{.Merchant}}</dd><dt>Total</dt><dd>{{.Total}} {{.Currency}}</dd><dt>Date</dt><dd>{{.Date.Format "2006-01-02"}}</dd><dt>Extraction confidence</dt><dd>{{.Confidence}}</dd>{{end}}</dl></div>
-</div>
+<div><iframe title="Original receipt" sandbox src="/receipts/{{.Item.SHA256}}/document"></iframe><p><a href="/receipts/{{.Item.SHA256}}/document">Open original</a></p></div>
+<div><dl><dt>Extraction</dt><dd>{{.Item.Status}}</dd>{{if .Item.LastError}}<dt>Error</dt><dd class="error">{{.Item.LastError}}</dd>{{end}}
+<dt>Review</dt><dd>{{.Item.State}}</dd>
+{{with .Item.Effective}}<dt>Merchant</dt><dd>{{.Merchant}}</dd><dt>Total</dt><dd>{{.Total}} {{.Currency}}</dd><dt>Date</dt><dd>{{.Date.Format "2006-01-02"}}</dd><dt>Extraction confidence</dt><dd>{{.Confidence}}</dd>{{end}}</dl>
+{{if eq .Item.State "approved"}}<p>Approved for {{.Item.Review.TransactionID}} (organisation {{.Item.Review.TenantID}}). Approval is not an upload.</p>{{end}}
+<h3>Delivery progress</h3><dl><dt>Xero attachment</dt><dd>Pending — not implemented</dd><dt>Paperless archive</dt><dd>Pending — not implemented</dd><dt>Intake cleanup</dt><dd>Pending — not implemented</dd></dl>
+{{with .Item.Record.Analysis}}<details><summary>Original extraction</summary><p>{{.Merchant}} · {{.Total}} {{.Currency}} · {{.Date.Format "2006-01-02"}} · confidence {{.Confidence}}</p></details>{{end}}
+</div></div>
+{{if eq .Item.Status "extracted"}}
+{{if eq .Item.State "approved"}}
+<form method="post" action="/receipts/{{.Item.SHA256}}/decision"><button name="action" value="needs_review">Return approval to review</button></form>
+{{else}}
+<h3>Correct extracted data</h3>
+{{with .Item.Effective}}<form method="post" action="/receipts/{{$.Item.SHA256}}/correction">
+<label>Merchant <input name="merchant" value="{{.Merchant}}" required></label>
+<label>Total <input name="total" value="{{.Total}}" required></label>
+<label>Currency <input name="currency" value="{{.Currency}}" required></label>
+<label>Date <input type="date" name="date" value="{{.Date.Format "2006-01-02"}}" required></label>
+<button>Save correction</button></form>{{end}}
+<h3>Manual decision</h3>
+<p>Unmatched receipts can wait for a transaction to be reconciled in Xero. Ignored receipts remain in the intake; they are not removed or archived.</p>
+<form method="post" action="/receipts/{{.Item.SHA256}}/decision">
+<button name="action" value="unmatched">Mark unmatched</button>
+<button name="action" value="ignored">Ignore and retain in intake</button>
+<button name="action" value="needs_review">Return to review</button></form>
+<h3>Search transactions</h3>
+<form method="get"><label>Contact, reference, account, date, amount or ID <input name="q" value="{{.Query}}"></label><button>Search</button></form>
+<p>Up to 100 results from the connected organisation. Only reconciled, authorised transactions can be approved.</p>
+{{if .Transactions}}<form method="post" action="/receipts/{{.Item.SHA256}}/decision"><table><thead><tr><th>Select</th><th>Date</th><th>Contact / reference</th><th>Amount</th><th>Status</th></tr></thead><tbody>
+{{range .Transactions}}<tr><td><input type="radio" name="transaction" value="{{.ID}}" required aria-label="Select {{.ID}}"></td><td>{{.Date}}</td><td>{{.Contact}} · {{.Reference}} · {{.BankAccount}}</td><td>{{.Total}} {{.Currency}}</td><td>{{.Status}}{{if .Reconciled}}, reconciled{{else}}, not reconciled{{end}}</td></tr>{{end}}
+</tbody></table><button name="action" value="approved">Approve selected</button> <button name="action" value="rejected">Reject selected</button></form>{{else}}<p>No transactions found. Connect Xero or try a different search.</p>{{end}}
+{{end}}{{end}}
+<h3>Review history</h3>
+{{if .History}}<table><thead><tr><th>Time (UTC)</th><th>Action</th><th>Target / retention</th><th>Reviewed data</th></tr></thead><tbody>
+{{range .History}}<tr><td>{{.CreatedAt}}</td><td>{{.Action}}</td><td>{{.TenantID}} {{.TransactionID}} {{.Retention}}</td><td>{{with .Analysis}}{{.Merchant}} · {{.Total}} {{.Currency}} · {{.Date.Format "2006-01-02"}}{{end}}</td></tr>{{end}}
+</tbody></table>{{else}}<p>No review decisions yet.</p>{{end}}
 {{template "foot"}}

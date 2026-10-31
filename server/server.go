@@ -152,6 +152,8 @@ func New(cfg Config) (*Server, error) {
 	mux.Handle("GET /receipts", s.protect(s.receipts))
 	mux.Handle("GET /receipts/{hash}", s.protect(s.receiptDetail))
 	mux.Handle("GET /receipts/{hash}/document", s.protect(s.receiptDocument))
+	mux.Handle("POST /receipts/{hash}/correction", s.protect(s.correctReceipt))
+	mux.Handle("POST /receipts/{hash}/decision", s.protect(s.decideReceipt))
 	mux.Handle("POST /xero/connect", s.protectXero(s.connect))
 	mux.Handle("GET "+callbackPath, s.protectXero(s.callback))
 	mux.Handle("POST /xero/check", s.protectXero(s.check))

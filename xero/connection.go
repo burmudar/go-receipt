@@ -28,6 +28,7 @@ var (
 	ErrNotConnected      = errors.New("xero is not connected")
 	ErrReconnectRequired = errors.New("xero connection must be reconnected")
 	ErrInvalidState      = errors.New("xero authorisation request is unknown or expired; start the connection again")
+	ErrPendingApprovals  = errors.New("return approved receipts to review before disconnecting the organisation")
 )
 
 const (
@@ -247,8 +248,23 @@ func (m *Manager) Check(ctx context.Context) error {
 func (m *Manager) Disconnect(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, err := m.db.ExecContext(ctx, "DELETE FROM xero_connection WHERE id = 1"); err != nil {
+	result, err := m.db.ExecContext(ctx, `DELETE FROM xero_connection WHERE id = 1 AND NOT EXISTS
+		(SELECT 1 FROM receipt_review WHERE state = 'approved' AND tenant_id = xero_connection.tenant_id)`)
+	if err != nil {
 		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		var exists bool
+		if err := m.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM xero_connection WHERE id=1)").Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			return ErrPendingApprovals
+		}
 	}
 	m.log.Info("xero disconnected")
 	return nil

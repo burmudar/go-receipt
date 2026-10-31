@@ -140,7 +140,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** The user can correct receipt data and approve, reject, or ignore transaction links. Each decision has an audit history.
 
-**Status:** Not started. Depends on milestone 3a.
+**Status:** Implemented on top of milestone 3a with real SQLite and a controlled Xero transaction set. Ignored receipts are retained in the intake; each ignore decision records that retention choice. Attachment, archive, and cleanup are not implemented, so completion after attachment remains to be validated in milestone 4.
 
 ### Work
 
@@ -153,10 +153,10 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 ### Done when
 
-- [ ] The user can correct the data of a receipt and approve a transaction link.
-- [ ] An unmatched receipt can remain pending or be ignored with a recorded decision. The UI shows that a pending receipt can wait for reconciliation in Xero.
-- [ ] A restart preserves decisions.
-- [ ] Approved receipts remain visibly pending until attachment upload succeeds. Attached receipts remain incomplete until Paperless archiving and intake cleanup finish.
+- [x] The user can correct the data of a receipt and approve a transaction link (controlled SQLite transaction set).
+- [x] An unmatched receipt can remain pending or be ignored with a recorded decision. The UI shows that a pending receipt can wait for reconciliation in Xero.
+- [x] A restart preserves decisions.
+- [ ] Approved receipts remain visibly pending until attachment upload succeeds. Attached receipts remain incomplete until Paperless archiving and intake cleanup finish (approved pending is implemented; subsequent operations are milestone 4).
 
 ## Milestone 4: Xero attachment, Paperless archive, and intake cleanup
 

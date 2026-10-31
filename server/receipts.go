@@ -78,7 +78,22 @@ func (s *Server) receipts(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusInternalServerError, err)
 		return
 	}
-	s.render(w, http.StatusOK, "receipts.html", records)
+	reviews, err := receipt.NewStore(s.cfg.DB).Reviews(r.Context())
+	if err != nil {
+		s.fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	var items []receiptItem
+	for _, record := range records {
+		item := makeReceiptItem(record, reviews[record.SHA256])
+		if r.URL.Query().Get("state") == "" || r.URL.Query().Get("state") == item.State {
+			items = append(items, item)
+		}
+	}
+	s.render(w, http.StatusOK, "receipts.html", struct {
+		Items  []receiptItem
+		Filter string
+	}{items, r.URL.Query().Get("state")})
 }
 
 func (s *Server) findReceipt(r *http.Request) (receipt.Record, error) {
@@ -104,7 +119,26 @@ func (s *Server) receiptDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.render(w, http.StatusOK, "receipt.html", record)
+	store := receipt.NewStore(s.cfg.DB)
+	reviews, err := store.Reviews(r.Context())
+	if err != nil {
+		s.fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	history, err := store.ReviewHistory(r.Context(), record.SHA256)
+	if err != nil {
+		s.fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	var transactions []xero.BankTransaction
+	if s.xero != nil {
+		transactions, err = s.xero.SearchBankTransactions(r.Context(), r.URL.Query().Get("q"))
+		if err != nil {
+			s.fail(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
+	s.render(w, http.StatusOK, "receipt.html", receiptDetailPage{Item: makeReceiptItem(record, reviews[record.SHA256]), History: history, Transactions: transactions, Query: r.URL.Query().Get("q")})
 }
 
 func (s *Server) receiptDocument(w http.ResponseWriter, r *http.Request) {

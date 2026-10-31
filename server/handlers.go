@@ -129,7 +129,11 @@ func (s *Server) transactions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 	if err := s.xero.Disconnect(r.Context()); err != nil {
-		s.fail(w, http.StatusInternalServerError, err)
+		if errors.Is(err, xero.ErrPendingApprovals) {
+			s.fail(w, http.StatusConflict, err)
+		} else {
+			s.fail(w, http.StatusInternalServerError, err)
+		}
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
