@@ -1,4 +1,4 @@
-package scancli
+package intake
 
 import (
 	"bytes"
@@ -57,17 +57,15 @@ func TestWebDAVSourceRoundTrip(t *testing.T) {
 			}))
 			defer server.Close()
 
-			t.Setenv("WEBDAV_PASSWORD", "fixture-password")
 			endpoint := server.URL + "/dav/"
-			files, err := webDAVFiles(ctx, endpoint, "fixture-user", "fixture-password", "inbox")
+			reader, err := NewWebDAVInput(endpoint, "fixture-user", "fixture-password", "inbox")
 			if err != nil {
 				t.Fatal(err)
 			}
-
-			reader := &sourceReader{config: config{
-				endpoint: endpoint,
-				user:     "fixture-user",
-			}}
+			files, err := reader.Files(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
 			count := 0
 			for file, err := range files {
 				if err != nil {

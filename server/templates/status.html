@@ -1,5 +1,6 @@
 {{template "head"}}
 <p><a href="/receipts">View receipts</a></p>
+{{if .ReceiptWorkerError}}<p class="error">{{.ReceiptWorkerError}}</p>{{end}}
 <h2>Xero connection</h2>
 {{if .SetupError}}
 <p class="error">{{.SetupError}}</p>
