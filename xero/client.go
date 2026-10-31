@@ -1,13 +1,19 @@
-// Package xero maintains the Xero connection. It does not depend on HTTP handlers or CLI commands.
+// Package xero maintains the Xero connection and the stored bank transactions.
+// It does not depend on HTTP handlers or CLI commands.
 package xero
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -21,12 +27,14 @@ type Endpoints struct {
 	AuthURL        string
 	TokenURL       string
 	ConnectionsURL string
+	AccountingURL  string
 }
 
 var DefaultEndpoints = Endpoints{
 	AuthURL:        "https://login.xero.com/identity/connect/authorize",
 	TokenURL:       "https://identity.xero.com/connect/token",
 	ConnectionsURL: "https://api.xero.com/connections",
+	AccountingURL:  "https://api.xero.com/api.xro/2.0",
 }
 
 type Config struct {
@@ -54,6 +62,7 @@ type client struct {
 	oauth       oauth2.Config
 	http        *http.Client
 	connections string
+	accounting  string
 }
 
 func newClient(cfg Config) (*client, error) {
@@ -85,6 +94,7 @@ func newClient(cfg Config) (*client, error) {
 		},
 		http:        httpClient,
 		connections: endpoints.ConnectionsURL,
+		accounting:  endpoints.AccountingURL,
 	}, nil
 }
 
@@ -142,6 +152,114 @@ func (c *client) organisations(ctx context.Context, accessToken string) ([]Organ
 		}
 	}
 	return organisations, nil
+}
+
+// pageSize is the largest page that Xero returns for bank transactions.
+const pageSize = 100
+
+// bankTransactionJSON is one record of GET /BankTransactions.
+type bankTransactionJSON struct {
+	BankTransactionID string
+	Type              string
+	Status            string
+	IsReconciled      bool
+	Date              string // /Date(milliseconds+0000)/
+	Reference         string
+	CurrencyCode      string
+	Total             json.Number // Keeps the exact decimal.
+	HasAttachments    bool
+	UpdatedDateUTC    string // /Date(milliseconds+0000)/
+	Contact           struct{ Name string }
+	BankAccount       struct{ Name string }
+}
+
+type bankTransactionPage struct {
+	transactions []bankTransactionJSON
+	// serverTime is the Xero clock when Xero sent the page. It is zero if the Date header is missing.
+	serverTime time.Time
+}
+
+// rateLimitError means that Xero returned HTTP 429.
+type rateLimitError struct {
+	retryAfter time.Duration
+	problem    string // minute, day, concurrent, or appminute
+}
+
+func (e *rateLimitError) Error() string {
+	return fmt.Sprintf("xero rate limit reached (%s limit); retry after %s", e.problem, e.retryAfter)
+}
+
+// bankTransactions returns one page of bank transactions of all types.
+// The order by ID is stable when records change during a refresh, so paging cannot skip a record.
+func (c *client) bankTransactions(ctx context.Context, accessToken, tenantID string, modifiedSince time.Time, page int) (bankTransactionPage, error) {
+	query := url.Values{
+		"page":     {strconv.Itoa(page)},
+		"pageSize": {strconv.Itoa(pageSize)},
+		"order":    {"BankTransactionID ASC"},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.accounting+"/BankTransactions?"+query.Encode(), nil)
+	if err != nil {
+		return bankTransactionPage{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("xero-tenant-id", tenantID)
+	if !modifiedSince.IsZero() {
+		req.Header.Set("If-Modified-Since", modifiedSince.UTC().Format(time.RFC3339))
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return bankTransactionPage{}, fmt.Errorf("list xero bank transactions: %w", err)
+	}
+	defer resp.Body.Close()
+
+	result := bankTransactionPage{}
+	if t, err := http.ParseTime(resp.Header.Get("Date")); err == nil {
+		result.serverTime = t
+	}
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotModified:
+		return result, nil
+	case http.StatusUnauthorized:
+		return bankTransactionPage{}, errUnauthorized
+	case http.StatusTooManyRequests:
+		limit := &rateLimitError{retryAfter: time.Minute, problem: resp.Header.Get("X-Rate-Limit-Problem")}
+		if seconds, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil {
+			limit.retryAfter = time.Duration(seconds) * time.Second
+		}
+		return bankTransactionPage{}, limit
+	default:
+		// Xero error bodies describe the problem, for example a missing scope. They do not contain tokens.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return bankTransactionPage{}, fmt.Errorf("list xero bank transactions: unexpected status %s: %s", resp.Status, bytes.TrimSpace(body))
+	}
+
+	var body struct{ BankTransactions []bankTransactionJSON }
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return bankTransactionPage{}, fmt.Errorf("decode xero bank transactions: %w", err)
+	}
+	result.transactions = body.BankTransactions
+	return result, nil
+}
+
+// parseXeroTime parses the Xero JSON date format, for example /Date(1476316800000+0000)/.
+// The number is milliseconds since the Unix epoch in UTC. The offset does not change the instant.
+func parseXeroTime(s string) (time.Time, error) {
+	inner, hasPrefix := strings.CutPrefix(s, "/Date(")
+	inner, hasSuffix := strings.CutSuffix(inner, ")/")
+	if !hasPrefix || !hasSuffix || inner == "" {
+		return time.Time{}, fmt.Errorf("unexpected xero date %q", s)
+	}
+	if i := strings.IndexAny(inner[1:], "+-"); i >= 0 {
+		inner = inner[:i+1]
+	}
+	ms, err := strconv.ParseInt(inner, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("unexpected xero date %q", s)
+	}
+	return time.UnixMilli(ms).UTC(), nil
 }
 
 // isInvalidGrant reports whether Xero rejected a code or refresh token permanently.

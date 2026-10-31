@@ -96,6 +96,8 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** The service retrieves and stores reconciled bank transactions from the connected organisation, and keeps them current.
 
+**Status:** Implemented. The test uses real SQLite and a controlled Accounting API: pagination, incremental refresh, changed and voided records, a short rate limit, and a stopped refresh. With live Xero, a full refresh stored 1354 transactions across 14 pages, including 25 deleted ones. An incremental refresh fetched only changes and created no duplicates. `If-Modified-Since` returns records that changed to `DELETED`, so a periodic full refresh is not necessary. The live rate-limit behaviour and the `VOIDED` status are not tested. The user starts a refresh on the status page. Milestone 3a adds the background refresh.
+
 ### Work
 
 - Fetch `SPEND` and `RECEIVE` bank transactions with the fields needed for review and matching, including `BankTransactionID`, `Status`, `IsReconciled`, and `UpdatedDateUTC`. Only reconciled, `AUTHORISED` transactions are eligible for new links.
@@ -107,33 +109,53 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 ### Done when
 
-- [ ] The service can retrieve real reconciled bank transactions from the connected organisation.
+- [x] The service can retrieve real reconciled bank transactions from the connected organisation (live Xero: 1329 of 1354).
 - [ ] A transaction reconciled after the previous refresh appears at the next refresh.
-- [ ] A changed, deleted, or voided transaction is updated at the next refresh without duplicate records.
-- [ ] A refresh across more than one page retrieves all matching transactions.
-- [ ] A rate-limit response delays the refresh and does not lose stored data.
+- [x] A changed, deleted, or voided transaction is updated at the next refresh without duplicate records (controlled Accounting API; live Xero returns deleted records to `If-Modified-Since`).
+- [x] A refresh across more than one page retrieves all matching transactions (live Xero: 14 pages).
+- [x] A rate-limit response delays the refresh and does not lose stored data (controlled Accounting API only).
 
-## Milestone 3: Background processing and manual review UI
+## Milestone 3a: Background processing and receipt pages
 
-**Outcome:** A running service imports receipts, and the UI lets the user inspect and approve transaction links.
+**Outcome:** A running service imports receipts, extracts their data, and refreshes bank transactions without CLI commands. The UI shows each receipt with its original document.
+
+**Status:** Not started.
 
 ### Work
 
-- Extend the existing server with a background worker for receipt import, extraction, and transaction refresh. Reuse the receipt processing workflow from milestone 1 and the transaction refresh from milestone 2b.
+- Extend the existing server with a background worker for receipt import, extraction, and transaction refresh. Reuse the receipt processing workflow from milestone 1 and the transaction refresh from milestone 2b. An incremental refresh is sufficient, because Xero returns deleted records to `If-Modified-Since`.
 - Add receipt list and detail pages with the original document beside extracted data.
+- Show the processing state of each receipt: pending, extracted, or failed with its error.
+- Keep the receipt pages and original documents behind the same access rules as the Xero connection pages.
+
+### Done when
+
+- [ ] New receipts in the configured local folder appear without running the scan CLI manually.
+- [ ] Bank transactions refresh in the background. The user does not need to select **Refresh transactions**.
+- [ ] The user can inspect a receipt: the original document beside its extracted data.
+- [ ] A failed extraction is visible in the UI with its error.
+- [ ] A restart does not repeat completed import or extraction.
+
+## Milestone 3b: Manual review decisions
+
+**Outcome:** The user can correct receipt data and approve, reject, or ignore transaction links. Each decision has an audit history.
+
+**Status:** Not started. Depends on milestone 3a.
+
+### Work
+
 - Allow corrections to extracted fields while retaining the original extraction result.
 - Allow transaction search and manual selection within the connected organisation.
 - Persist approval, rejection, and ignore decisions with timestamps and an audit history.
 - Separate needs-review, unmatched, approved, rejected, completed, ignored, and failed items in the UI. Approved must not mean uploaded. Show Xero attachment, Paperless archive, and intake cleanup progress separately.
 - Decide whether ignored receipts stay in the intake, are archived in Paperless, or are removed. Record that decision before milestone 4 cleanup.
-- Keep the review pages, original documents, and review actions behind the same access rules as the Xero connection pages.
+- Keep the review actions behind the same access rules as the Xero connection pages.
 
 ### Done when
 
-- [ ] New receipts in the configured local folder appear without running the scan CLI manually.
-- [ ] The user can inspect a receipt, correct its data, and approve a transaction link.
+- [ ] The user can correct the data of a receipt and approve a transaction link.
 - [ ] An unmatched receipt can remain pending or be ignored with a recorded decision. The UI shows that a pending receipt can wait for reconciliation in Xero.
-- [ ] A restart preserves decisions and does not repeat completed work.
+- [ ] A restart preserves decisions.
 - [ ] Approved receipts remain visibly pending until attachment upload succeeds. Attached receipts remain incomplete until Paperless archiving and intake cleanup finish.
 
 ## Milestone 4: Xero attachment, Paperless archive, and intake cleanup
@@ -224,7 +246,7 @@ Do not mark these checks complete based on local-folder tests alone.
 
 ## Delivery order
 
-Implement milestones 1, 2a, 2b, 3, and 4 in order. Introduce the long-running server and browser-based Xero connection in milestone 2a. Add bank transaction access in milestone 2b. Extend that server with background processing and manual review in milestone 3. Complete one manually approved receipt attachment, Paperless archive, and intake cleanup before adding matching automation. Add milestone 5 to reduce review effort. Use milestone 6 to prepare for unattended operation; basic access protection, secret handling, and safe uploads are required earlier, not deferred to this milestone.
+Implement milestones 1, 2a, 2b, 3a, 3b, and 4 in order. Introduce the long-running server and browser-based Xero connection in milestone 2a. Add bank transaction access in milestone 2b. Extend that server with background processing and receipt pages in milestone 3a, and with manual review decisions in milestone 3b. Complete one manually approved receipt attachment, Paperless archive, and intake cleanup before adding matching automation. Add milestone 5 to reduce review effort. Use milestone 6 to prepare for unattended operation; basic access protection, secret handling, and safe uploads are required earlier, not deferred to this milestone.
 
 ## Validation approach
 
