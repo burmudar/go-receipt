@@ -158,6 +158,29 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - [x] A restart preserves decisions.
 - [ ] Approved receipts remain visibly pending until attachment upload succeeds. Attached receipts remain incomplete until Paperless archiving and intake cleanup finish (approved pending is implemented; subsequent operations are milestone 4).
 
+## Milestone 3c: WebDAV service input and preview
+
+**Outcome:** The running service can import WebDAV receipts and display their retained originals using the same processing and review workflow as local receipts.
+
+**Status:** Not started. The scan CLI supports WebDAV, but the service's background worker and document preview currently support local sources only. Implement and test against a controlled WebDAV server without waiting for live access; live deployment readiness still requires the deferred validation below.
+
+### Work
+
+- Add configurable WebDAV endpoint, inbox, username, and secret settings to the service. Reuse the existing WebDAV input and receipt processing workflow, and keep credentials out of URLs, logs, and browser responses.
+- Discover and import WebDAV receipts in the background, deduplicating by content hash across local and WebDAV inputs. Preserve source references and verify retained bytes before extraction and preview.
+- Read and preview WebDAV originals on the authenticated receipt pages, restricting requests and credentials to the configured WebDAV endpoint. Keep the same document safety and access protections as local previews.
+- Handle records from both local and WebDAV sources safely. Do not mark a pending receipt as an extraction failure merely because its source is not configured for this service; report the configuration problem and leave it available for processing when the source is configured.
+- Surface discovery and source failures, resume safely after recovery or restart, and retain intake files. Do not add WebDAV cleanup before milestone 4's attachment and archive safeguards.
+
+### Done when
+
+- [ ] New receipts on a controlled WebDAV server are imported and extracted by the running service without the scan CLI.
+- [ ] WebDAV originals can be inspected beside their extracted data, subject to authentication and hash verification; missing or changed originals are not presented as the processed receipt.
+- [ ] Identical local and WebDAV content does not create a duplicate record or repeat a successful extraction, including across a restart.
+- [ ] Unconfigured, unavailable, or changed sources do not silently corrupt receipt state; processing can resume after access is restored.
+- [ ] WebDAV credentials are not sent to another endpoint or exposed in logs or pages. Controlled tests cover the service workflow and access rules.
+- [ ] Live WebDAV deployment is not declared ready until the deferred validation checks pass.
+
 ## Milestone 4: Xero attachment, Paperless archive, and intake cleanup
 
 **Outcome:** An approved receipt is attached to the selected Xero transaction, archived in Paperless, and safely removed from the intake. Each step has a durable completion record.
@@ -246,7 +269,7 @@ Do not mark these checks complete based on local-folder tests alone.
 
 ## Delivery order
 
-Implement milestones 1, 2a, 2b, 3a, 3b, and 4 in order. Introduce the long-running server and browser-based Xero connection in milestone 2a. Add bank transaction access in milestone 2b. Extend that server with background processing and receipt pages in milestone 3a, and with manual review decisions in milestone 3b. Complete one manually approved receipt attachment, Paperless archive, and intake cleanup before adding matching automation. Add milestone 5 to reduce review effort. Use milestone 6 to prepare for unattended operation; basic access protection, secret handling, and safe uploads are required earlier, not deferred to this milestone.
+Implement milestones 1, 2a, 2b, 3a, 3b, and 4 in order. Introduce the long-running server and browser-based Xero connection in milestone 2a. Add bank transaction access in milestone 2b. Extend that server with background processing and receipt pages in milestone 3a, and with manual review decisions in milestone 3b. Implement milestone 3c against a controlled WebDAV server after 3a and 3b; it can proceed alongside milestone 4 without live WebDAV access. Complete one manually approved receipt attachment, Paperless archive, and intake cleanup before adding matching automation. Add milestone 5 to reduce review effort. Use milestone 6 to prepare for unattended operation; basic access protection, secret handling, and safe uploads are required earlier, not deferred to this milestone.
 
 ## Validation approach
 
