@@ -24,7 +24,7 @@ import (
 
 // Cmd runs the receipt service. database points to the root --db flag value.
 func Cmd(database *string) *cobra.Command {
-	var listen, publicURL, passwordFile string
+	var listen, publicURL, passwordFile, configFile string
 	var requestTimeout, xeroTimeout, checkInterval time.Duration
 	var folder, apiKeyFile, model string
 	var webDAVURL, webDAVUser, webDAVPasswordFile, webDAVInbox string
@@ -43,6 +43,15 @@ to the proxy address and set a password with RCPT_PASSWORD or --password-file.`,
 			// The flags are valid. Do not print usage for runtime errors.
 			cmd.SilenceUsage = true
 
+			if cmd.Flags().Changed("config") {
+				if configFile == "" {
+					return fmt.Errorf("--config must not be empty")
+				}
+				if err := applyConfig(cmd, configFile, database); err != nil {
+					return err
+				}
+			}
+
 			if publicURL == "" {
 				// Xero accepts http redirect URIs only for localhost.
 				_, port, err := net.SplitHostPort(listen)
@@ -57,7 +66,17 @@ to the proxy address and set a password with RCPT_PASSWORD or --password-file.`,
 			}
 
 			required := server.AuthRequired(listen, public)
-			password, err := readPassword(passwordFile, required)
+			var password string
+			if configFile != "" {
+				if passwordFile == "" && required {
+					return fmt.Errorf("set server.password_file or --password-file when authentication is required")
+				}
+				if passwordFile != "" {
+					password, err = readFileSecret(passwordFile, "UI password")
+				}
+			} else {
+				password, err = readPassword(passwordFile, required)
+			}
 			if err != nil {
 				return err
 			}
@@ -73,7 +92,12 @@ to the proxy address and set a password with RCPT_PASSWORD or --password-file.`,
 			}
 			var webDAV *intake.WebDAVInput
 			if webDAVURL != "" {
-				secret, err := readNamedSecret("WEBDAV_PASSWORD", webDAVPasswordFile)
+				var secret string
+				if configFile != "" {
+					secret, err = readFileSecret(webDAVPasswordFile, "WebDAV password")
+				} else {
+					secret, err = readNamedSecret("WEBDAV_PASSWORD", webDAVPasswordFile)
+				}
 				if err != nil {
 					return err
 				}
@@ -87,7 +111,12 @@ to the proxy address and set a password with RCPT_PASSWORD or --password-file.`,
 			var discover func(context.Context) (iter.Seq2[receipt.File, error], error)
 			var scanner receipt.Scanner
 			if folder != "" || webDAV != nil {
-				key, err := readSecret(apiKeyFile)
+				var key string
+				if configFile != "" {
+					key, err = readFileSecret(apiKeyFile, "OpenAI API key")
+				} else {
+					key, err = readSecret(apiKeyFile)
+				}
 				if err != nil {
 					return err
 				}
@@ -128,6 +157,7 @@ to the proxy address and set a password with RCPT_PASSWORD or --password-file.`,
 	}
 
 	flags := cmd.Flags()
+	flags.StringVar(&configFile, "config", "", "TOML service configuration file")
 	flags.StringVar(&folder, "dir", "", "Local receipt folder to import in the background")
 	flags.StringVar(&webDAVURL, "webdav-url", "", "WebDAV server URL")
 	flags.StringVar(&webDAVUser, "webdav-user", "", "WebDAV username")
@@ -156,6 +186,21 @@ func (s timedScanner) Scan(ctx context.Context, file receipt.File) (receipt.Anal
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	return s.Scanner.Scan(ctx, file)
+}
+
+func readFileSecret(filename, name string) (string, error) {
+	if strings.TrimSpace(filename) == "" {
+		return "", fmt.Errorf("%s file path is required in the configuration or flags", name)
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return "", fmt.Errorf("read %s file: %w", name, err)
+	}
+	value := strings.TrimSpace(string(data))
+	if value == "" {
+		return "", fmt.Errorf("%s file is empty", name)
+	}
+	return value, nil
 }
 
 func readSecret(filename string) (string, error) {

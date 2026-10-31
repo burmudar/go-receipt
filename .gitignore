@@ -6,3 +6,5 @@
 *.db-*
 /inbox/
 .rcpt-password
+/config.toml
+/secrets/

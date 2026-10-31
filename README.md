@@ -14,7 +14,7 @@ go tool goose -dir . sqlite3 ./app.db up
 mkdir -p inbox
 ```
 
-All commands accept `--db` to select the database. The default is `app.db`.
+All commands accept `--db` to select the database. The default is `app.db`. The service can also get its database path from a TOML file; the other commands still use `--db`.
 
 The database contains receipt hashes, source locations, extracted data, OAuth client secrets, and Xero tokens. It does not contain original file bytes. Restrict access to the database, intake files, and their backups. The default inbox, database files, and default secret files are excluded from Git.
 
@@ -108,7 +108,26 @@ These completion steps are not implemented in milestone 1.
 
 ## Service and Xero connection
 
-Save the Xero app client credentials. This is the only CLI setup step:
+### TOML service configuration
+
+Copy `config.example.toml` to `config.toml` and edit the settings. Paths in the TOML file—including the database, local inbox, and secret files—are relative to the TOML file's directory. Durations use Go duration strings such as `30s`, `2m`, or `24h`.
+
+```sh
+umask 077
+cp config.example.toml config.toml
+mkdir -p inbox secrets
+# Put the OpenAI API key in secrets/openai-key with mode 0600.
+go tool goose -dir . sqlite3 ./app.db up
+go run . serve --config config.toml
+```
+
+The example enables local receipt input. To enable WebDAV, uncomment its section and provide the password file. Set `server.password_file` for home-network access; it is optional on localhost. Secret values belong in the referenced files, not in TOML. With `--config`, the UI password, OpenAI key, and WebDAV password are read **only from configured file paths**, not from environment variables. Unknown TOML keys are rejected. Explicit service flags override TOML values; paths supplied through flags are relative to the shell's working directory.
+
+The config applies only to `serve`. Use `--db` with `oauth`, `scan`, and other commands if the configured database is not the default. Xero OAuth client credentials are still managed by the separate setup command below; they are stored in SQLite, not in the TOML file. Without `--config`, existing flag defaults and environment-variable secret handling continue to work.
+
+### Xero setup
+
+Save the Xero app client credentials if you want to connect Xero:
 
 ```sh
 go run . oauth set --client-id CLIENT_ID --client-secret CLIENT_SECRET

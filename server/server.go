@@ -90,6 +90,12 @@ func New(cfg Config) (*Server, error) {
 	if cfg.PublicURL == nil || (cfg.PublicURL.Scheme != "http" && cfg.PublicURL.Scheme != "https") || cfg.PublicURL.Host == "" {
 		return nil, fmt.Errorf("the public URL must be an absolute http or https URL")
 	}
+	if cfg.PublicURL.User != nil {
+		return nil, fmt.Errorf("the public URL must not contain credentials")
+	}
+	if cfg.PublicURL.RawQuery != "" || cfg.PublicURL.Fragment != "" {
+		return nil, fmt.Errorf("the public URL must not contain a query or fragment")
+	}
 	if cfg.PublicURL.Scheme == "http" && !isLoopback(cfg.PublicURL.Hostname()) {
 		return nil, fmt.Errorf("the public URL must use https unless it is a localhost URL; Xero rejects other http redirect URIs")
 	}
