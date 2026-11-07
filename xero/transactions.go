@@ -33,6 +33,7 @@ type BankTransaction struct {
 	Total          string // exact decimal
 	HasAttachments bool
 	UpdatedAt      time.Time
+	ReceiptLinks   []ReceiptLink // Current approved links from this application.
 }
 
 // Eligible reports whether a new receipt link can target the transaction.

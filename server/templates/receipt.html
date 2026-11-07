@@ -30,11 +30,16 @@
 <button name="action" value="unmatched">Mark unmatched</button>
 <button name="action" value="ignored">Ignore and retain in intake</button>
 <button name="action" value="needs_review">Return to review</button></form>
+<h3>Suggested matches</h3>
+<p>Match confidence is a heuristic, separate from extraction confidence. Suggestions require the same amount and currency and a date within seven days; none are approved automatically. Check existing links and Xero attachments before approving.</p>
+{{if .Suggestions}}<form method="post" action="/receipts/{{.Item.SHA256}}/decision"><table><thead><tr><th>Select</th><th>Transaction</th><th>Match confidence and reasons</th><th>Existing links</th></tr></thead><tbody>
+{{range .Suggestions}}<tr><td><input type="radio" name="transaction" value="{{.Transaction.ID}}" required aria-label="Select suggestion {{.Transaction.ID}}"></td><td>{{.Transaction.Date}} · {{.Transaction.Contact}} · {{.Transaction.Reference}} · {{.Transaction.Total}} {{.Transaction.Currency}} · {{.Transaction.ID}}</td><td>{{.Confidence}}<ul>{{range .Reasons}}<li>{{.}}</li>{{end}}</ul></td><td>{{range .Transaction.ReceiptLinks}}<a href="/receipts/{{.Hash}}">{{.Name}}</a> {{end}}{{if .Transaction.HasAttachments}}Xero reports attachments{{end}}{{if not .Transaction.ReceiptLinks}}{{if not .Transaction.HasAttachments}}None known{{end}}{{end}}</td></tr>{{end}}
+</tbody></table><button name="action" value="approved">Approve suggested match</button></form>{{else}}<p>No suitable suggestions. Search manually or leave this receipt pending.</p>{{end}}
 <h3>Search transactions</h3>
 <form method="get"><label>Contact, reference, account, date, amount or ID <input name="q" value="{{.Query}}"></label><button>Search</button></form>
 <p>Up to 100 results from the connected organisation. Only reconciled, authorised transactions can be approved.</p>
-{{if .Transactions}}<form method="post" action="/receipts/{{.Item.SHA256}}/decision"><table><thead><tr><th>Select</th><th>Date</th><th>Contact / reference</th><th>Amount</th><th>Status</th></tr></thead><tbody>
-{{range .Transactions}}<tr><td><input type="radio" name="transaction" value="{{.ID}}" required aria-label="Select {{.ID}}"></td><td>{{.Date}}</td><td>{{.Contact}} · {{.Reference}} · {{.BankAccount}}</td><td>{{.Total}} {{.Currency}}</td><td>{{.Status}}{{if .Reconciled}}, reconciled{{else}}, not reconciled{{end}}</td></tr>{{end}}
+{{if .Transactions}}<form method="post" action="/receipts/{{.Item.SHA256}}/decision"><table><thead><tr><th>Select</th><th>Date</th><th>Contact / reference</th><th>Amount</th><th>Status</th><th>Existing links</th></tr></thead><tbody>
+{{range .Transactions}}<tr><td><input type="radio" name="transaction" value="{{.ID}}" required aria-label="Select {{.ID}}"></td><td>{{.Date}}</td><td>{{.Contact}} · {{.Reference}} · {{.BankAccount}}</td><td>{{.Total}} {{.Currency}}</td><td>{{.Status}}{{if .Reconciled}}, reconciled{{else}}, not reconciled{{end}}</td><td>{{range .ReceiptLinks}}<a href="/receipts/{{.Hash}}">{{.Name}}</a> {{end}}{{if .HasAttachments}}Xero reports attachments{{end}}{{if not .ReceiptLinks}}{{if not .HasAttachments}}None known{{end}}{{end}}</td></tr>{{end}}
 </tbody></table><button name="action" value="approved">Approve selected</button> <button name="action" value="rejected">Reject selected</button></form>{{else}}<p>No transactions found. Connect Xero or try a different search.</p>{{end}}
 {{end}}{{end}}
 <h3>Review history</h3>

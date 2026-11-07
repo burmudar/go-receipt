@@ -53,6 +53,7 @@ type receiptDetailPage struct {
 	Item         receiptItem
 	History      []receipt.ReviewEvent
 	Transactions []xero.BankTransaction
+	Suggestions  []xero.Suggestion
 	Query        string
 }
 

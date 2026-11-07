@@ -178,12 +178,32 @@ func (s *Server) receiptDetail(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusInternalServerError, err)
 		return
 	}
+	item := makeReceiptItem(record, reviews[record.SHA256])
 	var transactions []xero.BankTransaction
+	var suggestions []xero.Suggestion
 	if s.xero != nil {
 		transactions, err = s.xero.SearchBankTransactions(r.Context(), r.URL.Query().Get("q"))
 		if err != nil {
 			s.fail(w, http.StatusInternalServerError, err)
 			return
+		}
+		if record.Status == receipt.Extracted && item.Review.State != "approved" {
+			suggestions, err = s.xero.SuggestedBankTransactions(r.Context(), item.Effective)
+			if err != nil {
+				s.fail(w, http.StatusInternalServerError, err)
+				return
+			}
+		}
+		links, err := s.xero.ReceiptLinks(r.Context())
+		if err != nil {
+			s.fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		for i := range transactions {
+			transactions[i].ReceiptLinks = links[transactions[i].ID]
+		}
+		for i := range suggestions {
+			suggestions[i].Transaction.ReceiptLinks = links[suggestions[i].Transaction.ID]
 		}
 	}
 	attachments, err := s.attachmentProgress(r.Context())
@@ -201,7 +221,6 @@ func (s *Server) receiptDetail(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, 500, err)
 		return
 	}
-	item := makeReceiptItem(record, reviews[record.SHA256])
 	item.Cleanup = cleanups[record.SHA256]
 	item.Archive = archives[record.SHA256]
 	item.ArchiveConfigured = s.archive != nil
@@ -209,7 +228,7 @@ func (s *Server) receiptDetail(w http.ResponseWriter, r *http.Request) {
 	if item.Complete() {
 		item.State = "completed"
 	}
-	s.render(w, http.StatusOK, "receipt.html", receiptDetailPage{Item: item, History: history, Transactions: transactions, Query: r.URL.Query().Get("q")})
+	s.render(w, http.StatusOK, "receipt.html", receiptDetailPage{Item: item, History: history, Transactions: transactions, Suggestions: suggestions, Query: r.URL.Query().Get("q")})
 }
 
 func (s *Server) receiptDocument(w http.ResponseWriter, r *http.Request) {
