@@ -19,6 +19,7 @@ type receiptItem struct {
 	Effective         *receipt.Analysis
 	Attachment        receipt.Attachment
 	Archive           receipt.Archive
+	Cleanup           receipt.Cleanup
 	ArchiveConfigured bool
 }
 

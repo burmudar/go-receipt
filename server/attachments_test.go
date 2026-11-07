@@ -19,7 +19,7 @@ func TestAttachmentProgressPage(t *testing.T) {
 		if err = pages.ExecuteTemplate(&out, "receipt.html", receiptDetailPage{Item: item}); err != nil {
 			t.Fatal(err)
 		}
-		for _, want := range []string{"<dt>Xero attachment</dt><dd>" + state, "test upload error", "Paperless archive", "Intake cleanup", "Pending — not implemented"} {
+		for _, want := range []string{"<dt>Xero attachment</dt><dd>" + state, "test upload error", "Paperless archive", "Intake cleanup", "Pending — requires approved, attached and archived receipt"} {
 			if !strings.Contains(out.String(), want) {
 				t.Errorf("%s missing %s", state, want)
 			}

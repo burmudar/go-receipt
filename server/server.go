@@ -236,6 +236,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if s.archive != nil {
 		start(s.archivePeriodically)
 	}
+	start(s.cleanupPeriodically)
 	if s.cfg.Discover != nil {
 		start(s.processPeriodically)
 	}

@@ -110,11 +110,20 @@ func (s *Server) receipts(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, 500, err)
 		return
 	}
+	cleanups, err := receipt.NewStore(s.cfg.DB).Cleanups(r.Context())
+	if err != nil {
+		s.fail(w, 500, err)
+		return
+	}
 	var items []receiptItem
 	for _, record := range records {
 		item := makeReceiptItem(record, reviews[record.SHA256])
 		item.Attachment = attachments[record.SHA256]
 		item.Archive = archives[record.SHA256]
+		item.Cleanup = cleanups[record.SHA256]
+		if item.Complete() {
+			item.State = "completed"
+		}
 		item.ArchiveConfigured = s.archive != nil
 		if filter := r.URL.Query().Get("archive"); filter != "" {
 			state := item.Archive.State
@@ -187,10 +196,19 @@ func (s *Server) receiptDetail(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, 500, err)
 		return
 	}
+	cleanups, err := store.Cleanups(r.Context())
+	if err != nil {
+		s.fail(w, 500, err)
+		return
+	}
 	item := makeReceiptItem(record, reviews[record.SHA256])
+	item.Cleanup = cleanups[record.SHA256]
 	item.Archive = archives[record.SHA256]
 	item.ArchiveConfigured = s.archive != nil
 	item.Attachment = attachments[record.SHA256]
+	if item.Complete() {
+		item.State = "completed"
+	}
 	s.render(w, http.StatusOK, "receipt.html", receiptDetailPage{Item: item, History: history, Transactions: transactions, Query: r.URL.Query().Get("q")})
 }
 
