@@ -27,7 +27,7 @@ func TestCleanupProgressPages(t *testing.T) {
 		if err = pages.ExecuteTemplate(&out, "receipt.html", receiptDetailPage{Item: item}); err != nil {
 			t.Fatal(err)
 		}
-		for _, want := range []string{"Intake cleanup</dt><dd>" + state, "cleanup intervention", "Approved for target"} {
+		for _, want := range []string{"Intake cleanup</strong>" + state, "cleanup intervention", "Approved for target"} {
 			if !strings.Contains(out.String(), want) {
 				t.Errorf("missing %s", want)
 			}
@@ -36,10 +36,7 @@ func TestCleanupProgressPages(t *testing.T) {
 			t.Fatal("wrong completion label")
 		}
 		out.Reset()
-		if err = pages.ExecuteTemplate(&out, "receipts.html", struct {
-			Items  []receiptItem
-			Filter string
-		}{[]receiptItem{item}, ""}); err != nil {
+		if err = pages.ExecuteTemplate(&out, "receipts.html", receiptList([]receiptItem{item}, nil)); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(out.String(), "cleanup "+state) || !strings.Contains(out.String(), "cleanup intervention") {

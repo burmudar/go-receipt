@@ -38,7 +38,7 @@ func (s *Store) Import(ctx context.Context, file File) (hash string, added bool,
 
 func (s *Store) List(ctx context.Context) ([]Record, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT sha256, name, source, status, analysis,
+		SELECT sha256, name, source, status, analysis, analysis_source,
 		       attempts, last_error, created_at, updated_at, extracted_at
 		FROM receipt
 		ORDER BY created_at, sha256
@@ -60,6 +60,7 @@ func (s *Store) List(ctx context.Context) ([]Record, error) {
 			&r.Source,
 			&r.Status,
 			&analysis,
+			&r.AnalysisSource,
 			&r.Attempts,
 			&r.LastError,
 			&r.CreatedAt,
@@ -85,42 +86,54 @@ func (s *Store) List(ctx context.Context) ([]Record, error) {
 	return records, rows.Err()
 }
 
-func (s *Store) startAttempt(ctx context.Context, hash string, automatic bool) error {
-	_, err := s.db.ExecContext(ctx, `
+func (s *Store) startAttempt(ctx context.Context, hash string, automatic bool) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `
 		UPDATE receipt
 		SET attempts = attempts + 1,
             status = CASE WHEN ? THEN 'pending' ELSE status END,
 		    updated_at = CURRENT_TIMESTAMP
-		WHERE sha256 = ?
+		WHERE sha256 = ? AND status != 'extracted'
 	`, automatic, hash)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n != 0, err
 }
 
-func (s *Store) finish(ctx context.Context, hash string, analysis Analysis, scanErr error) error {
+func (s *Store) finish(ctx context.Context, hash string, analysis Analysis, scanErr error) (bool, error) {
 	if scanErr != nil {
-		_, err := s.db.ExecContext(ctx, `
+		result, err := s.db.ExecContext(ctx, `
 			UPDATE receipt
 			SET status = 'failed',
 			    last_error = ?,
 			    updated_at = CURRENT_TIMESTAMP
-			WHERE sha256 = ?
+			WHERE sha256 = ? AND status != 'extracted'
 		`, scanErr.Error(), hash)
-		return err
+		if err != nil {
+			return false, err
+		}
+		n, err := result.RowsAffected()
+		return n != 0, err
 	}
 
 	data, err := json.Marshal(analysis)
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	_, err = s.db.ExecContext(ctx, `
+	result, err := s.db.ExecContext(ctx, `
 		UPDATE receipt
 		SET status = 'extracted',
 		    analysis = ?,
 		    last_error = '',
 		    updated_at = CURRENT_TIMESTAMP,
 		    extracted_at = CURRENT_TIMESTAMP
-		WHERE sha256 = ?
+		WHERE sha256 = ? AND status != 'extracted'
 	`, string(data), hash)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n != 0, err
 }

@@ -69,8 +69,13 @@ func (s *Store) process(ctx context.Context, source Source, scanner Scanner, ret
 			}
 		}
 
-		if err := s.startAttempt(ctx, r.SHA256, automatic); err != nil {
+		started, err := s.startAttempt(ctx, r.SHA256, automatic)
+		if err != nil {
 			return progress, err
+		}
+		if !started {
+			progress.Skipped++
+			continue
 		}
 
 		analysis, scanErr := extract(ctx, source, scanner, r)
@@ -82,10 +87,10 @@ func (s *Store) process(ctx context.Context, source Source, scanner Scanner, ret
 		if errors.Is(scanErr, ErrSourceUnconfigured) || errors.Is(scanErr, ErrSourceUnavailable) {
 			if automatic {
 				if r.Attempts+1 >= 5 {
-					if err := s.finish(ctx, r.SHA256, analysis, scanErr); err != nil {
+					if _, err := s.finish(ctx, r.SHA256, analysis, scanErr); err != nil {
 						return progress, err
 					}
-				} else if _, err := s.db.ExecContext(ctx, `UPDATE receipt SET last_error=? WHERE sha256=?`, scanErr.Error(), r.SHA256); err != nil {
+				} else if _, err := s.db.ExecContext(ctx, `UPDATE receipt SET last_error=? WHERE sha256=? AND status != 'extracted'`, scanErr.Error(), r.SHA256); err != nil {
 					return progress, err
 				}
 			}
@@ -94,8 +99,13 @@ func (s *Store) process(ctx context.Context, source Source, scanner Scanner, ret
 			continue
 		}
 
-		if err := s.finish(ctx, r.SHA256, analysis, scanErr); err != nil {
+		finished, err := s.finish(ctx, r.SHA256, analysis, scanErr)
+		if err != nil {
 			return progress, fmt.Errorf("save receipt %s: %w", r.SHA256, err)
+		}
+		if !finished {
+			progress.Skipped++
+			continue
 		}
 
 		if scanErr != nil {

@@ -24,7 +24,7 @@ func TestArchiveProgressPages(t *testing.T) {
 		if err = pages.ExecuteTemplate(&out, "receipt.html", receiptDetailPage{Item: item}); err != nil {
 			t.Fatal(err)
 		}
-		for _, want := range []string{"Paperless archive</dt><dd>" + state, "task-reference", "Intake cleanup</dt><dd>Pending", "not complete until archive and cleanup finish"} {
+		for _, want := range []string{"Paperless archive</strong>" + state, "task-reference", "Intake cleanup</strong>Pending", "not complete until archive and cleanup finish"} {
 			if !strings.Contains(out.String(), want) {
 				t.Errorf("%s missing %s", state, want)
 			}
@@ -36,10 +36,7 @@ func TestArchiveProgressPages(t *testing.T) {
 			t.Fatal("document reference missing")
 		}
 		out.Reset()
-		if err = pages.ExecuteTemplate(&out, "receipts.html", struct {
-			Items  []receiptItem
-			Filter string
-		}{[]receiptItem{item}, ""}); err != nil {
+		if err = pages.ExecuteTemplate(&out, "receipts.html", receiptList([]receiptItem{item}, nil)); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(out.String(), "archive "+state) {

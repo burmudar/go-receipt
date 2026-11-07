@@ -66,14 +66,15 @@ const (
 // Record stores metadata, not file bytes. Originals remain at Source until Xero
 // attachment and Paperless archiving are confirmed.
 type Record struct {
-	SHA256      string     `json:"sha256"`
-	Name        string     `json:"name"`
-	Source      string     `json:"source"`
-	Status      string     `json:"status"`
-	Analysis    *Analysis  `json:"analysis,omitempty"`
-	Attempts    int        `json:"attempts"`
-	LastError   string     `json:"last_error,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	ExtractedAt *time.Time `json:"extracted_at,omitempty"`
+	SHA256         string     `json:"sha256"`
+	Name           string     `json:"name"`
+	Source         string     `json:"source"`
+	Status         string     `json:"status"`
+	Analysis       *Analysis  `json:"analysis,omitempty"`
+	AnalysisSource string     `json:"analysis_source"`
+	Attempts       int        `json:"attempts"`
+	LastError      string     `json:"last_error,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	ExtractedAt    *time.Time `json:"extracted_at,omitempty"`
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/burmudar/go-receipt/cmd/serviceconfig"
 	"github.com/burmudar/go-receipt/db"
 	"github.com/burmudar/go-receipt/extract"
 	"github.com/burmudar/go-receipt/intake"
@@ -29,6 +30,8 @@ type config struct {
 	model        string
 	timeout      time.Duration
 	importOnly   bool
+	configFile   string
+	configured   bool
 }
 
 // Cmd imports and extracts receipts. database points to the root --db flag value.
@@ -40,6 +43,7 @@ func Cmd(database *string) *cobra.Command {
 		Short: "Import receipts and persist structured extraction results",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
 			return cfg.run(cmd, false)
 		},
 	}
@@ -54,6 +58,7 @@ func Cmd(database *string) *cobra.Command {
 
 	persistentFlags.StringVar(&cfg.endpoint, "webdav-url", "", "WebDAV server URL")
 	persistentFlags.StringVar(&cfg.user, "webdav-user", "", "WebDAV username")
+	persistentFlags.StringVar(&cfg.inbox, "webdav-inbox", "inbox", "WebDAV inbox path")
 	persistentFlags.StringVar(
 		&cfg.passwordFile, "webdav-password-file", ".storage-password",
 		"WebDAV password file; WEBDAV_PASSWORD takes precedence",
@@ -61,7 +66,6 @@ func Cmd(database *string) *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.StringVar(&cfg.folder, "dir", "", "Local receipt folder (top-level regular files only)")
-	flags.StringVar(&cfg.inbox, "webdav-inbox", "inbox", "WebDAV inbox path")
 	flags.BoolVar(&cfg.importOnly, "import-only", false, "Record source locations and hashes without contacting OpenAI")
 	cmd.MarkFlagsMutuallyExclusive("dir", "webdav-url")
 
@@ -70,6 +74,7 @@ func Cmd(database *string) *cobra.Command {
 		Short: "List persisted receipt status, analysis, and errors as JSON",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
 			conn, err := db.Open(*cfg.database)
 			if err != nil {
 				return err
@@ -90,12 +95,68 @@ func Cmd(database *string) *cobra.Command {
 		Short: "Process pending and failed receipts from their retained intake files",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
+			if cmd.Flags().Changed("config") {
+				if cfg.configFile == "" {
+					return fmt.Errorf("--config must not be empty")
+				}
+				if err := cfg.applyConfig(cmd); err != nil {
+					return err
+				}
+			}
 			return cfg.run(cmd, true)
 		},
 	}
+	retryCmd.Flags().StringVar(&cfg.configFile, "config", "", "TOML service configuration file")
 
 	cmd.AddCommand(listCmd, retryCmd)
 	return cmd
+}
+
+// applyConfig uses the service's receipt settings while preserving explicit CLI flags.
+func (c *config) applyConfig(cmd *cobra.Command) error {
+	cfg, resolve, err := serviceconfig.Load(c.configFile)
+	if err != nil {
+		return err
+	}
+	c.configured = true
+	if flag := cmd.Flag("db"); cfg.Server.Database != nil && (flag == nil || !flag.Changed) {
+		*c.database = resolve(*cfg.Server.Database)
+	}
+	for _, name := range []string{"api-key-file", "webdav-password-file"} {
+		if flag := cmd.Flag(name); !flag.Changed {
+			if err := flag.Value.Set(""); err != nil {
+				return fmt.Errorf("reset --%s: %w", name, err)
+			}
+		}
+	}
+	settings := []struct {
+		name  string
+		value *string
+		path  bool
+	}{
+		{"api-key-file", cfg.OpenAI.APIKeyFile, true},
+		{"model", cfg.OpenAI.Model, false},
+		{"timeout", cfg.OpenAI.Timeout, false},
+		{"webdav-url", cfg.WebDAV.URL, false},
+		{"webdav-user", cfg.WebDAV.Username, false},
+		{"webdav-password-file", cfg.WebDAV.PasswordFile, true},
+		{"webdav-inbox", cfg.WebDAV.Inbox, false},
+	}
+	for _, setting := range settings {
+		flag := cmd.Flag(setting.name)
+		if setting.value == nil || flag.Changed {
+			continue
+		}
+		value := *setting.value
+		if setting.path {
+			value = resolve(value)
+		}
+		if err := flag.Value.Set(value); err != nil {
+			return fmt.Errorf("invalid config for --%s: %w", setting.name, err)
+		}
+	}
+	return nil
 }
 
 func secret(env, filename string) (string, error) {
@@ -191,7 +252,7 @@ func (c config) run(cmd *cobra.Command, retry bool) error {
 	}
 
 	if !c.importOnly {
-		token, err := secret("OPENAI_API_KEY", c.apiKeyFile)
+		token, err := c.readSecret("OPENAI_API_KEY", c.apiKeyFile)
 		if err != nil {
 			failures = append(failures, err)
 		} else {
@@ -229,7 +290,7 @@ func (r *sourceReader) Read(ctx context.Context, location string) ([]byte, error
 	if r.config.endpoint == "" || r.config.user == "" {
 		return nil, fmt.Errorf("%w: set --webdav-url and --webdav-user", receipt.ErrSourceUnconfigured)
 	}
-	password, err := secret("WEBDAV_PASSWORD", r.config.passwordFile)
+	password, err := r.config.readSecret("WEBDAV_PASSWORD", r.config.passwordFile)
 	if err != nil {
 		return nil, fmt.Errorf("%w: WebDAV credentials", receipt.ErrSourceUnconfigured)
 	}
@@ -238,6 +299,25 @@ func (r *sourceReader) Read(ctx context.Context, location string) ([]byte, error
 		return nil, err
 	}
 	return input.Read(ctx, location)
+}
+
+// TOML mode, like serve, takes secrets only from configured files.
+func (c config) readSecret(env, filename string) (string, error) {
+	if !c.configured {
+		return secret(env, filename)
+	}
+	if filename == "" {
+		return "", fmt.Errorf("secret file path is required in the configuration or flags")
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return "", fmt.Errorf("read secret file: %w", err)
+	}
+	value := strings.TrimSpace(string(data))
+	if value == "" {
+		return "", fmt.Errorf("secret file must not be empty")
+	}
+	return value, nil
 }
 
 type timedScanner struct {
