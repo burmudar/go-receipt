@@ -85,13 +85,14 @@ func (s *Store) List(ctx context.Context) ([]Record, error) {
 	return records, rows.Err()
 }
 
-func (s *Store) startAttempt(ctx context.Context, hash string) error {
+func (s *Store) startAttempt(ctx context.Context, hash string, automatic bool) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE receipt
 		SET attempts = attempts + 1,
+            status = CASE WHEN ? THEN 'pending' ELSE status END,
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE sha256 = ?
-	`, hash)
+	`, automatic, hash)
 	return err
 }
 

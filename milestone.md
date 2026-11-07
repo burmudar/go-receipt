@@ -269,6 +269,8 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** The service proposes transaction matches and explains them, while the user retains approval control.
 
+**Status:** Implemented in `fa34069`; the milestone checklist was stale. Ranked suggestions, explanations, existing links and manual approval/audit history are covered by the Xero matching and server review tests.
+
 ### Work
 
 - Generate candidates using amount, currency, transaction date, and merchant information.
@@ -279,14 +281,18 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 ### Done when
 
-- [ ] Receipts with suitable candidates show ranked suggestions and their reasons.
-- [ ] Ambiguous candidates do not produce an automatic attachment.
-- [ ] Manual selection remains available when suggestions are wrong or absent.
-- [ ] The audit history records the selected match and approval decision.
+- [x] Receipts with suitable candidates show ranked suggestions and their reasons.
+- [x] Ambiguous candidates do not produce an automatic attachment.
+- [x] Manual selection remains available when suggestions are wrong or absent.
+- [x] The audit history records the selected match and approval decision.
 
 ## Milestone 6: Unattended operation and optional automatic approval
 
 **Outcome:** The service operates reliably without supervision, with clear exceptions for manual review.
+
+**Status:** Implemented the manual-approval scope selected by the operator. Added durable background pause/health/scheduling, capped worker backoff, five-attempt extraction retries, cycle deadlines, cancellation recovery, and manual approval provenance (including historical approvals). Automatic approval remains unavailable pending policy evaluation on reviewed receipts; the prospective policy and deployment/backup/restore procedures are in [operations](docs/operations.md). Controlled tests cover SQLite snapshot restoration, restart-persistent pause and backoff, extraction exhaustion and explicit retry, context deadlines, source recovery, and approval provenance. Existing confirmed-side-effect recovery tests still pass. No live infrastructure or real receipt data was changed. A coordinated production restore drill and live provider outage checks remain outstanding.
+
+Validation: `go test ./...`, `go vet ./...`, and `go test -race ./server ./receipt ./xero ./paperless ./intake ./cmd/servecli` passed. Live WebDAV checks remain deferred. Apply `20261104120000_operations.sql` before starting the service.
 
 ### Work
 
@@ -302,9 +308,9 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 - [ ] The service recovers from restarts and temporary receipt-source, OpenAI, Xero, and Paperless failures. Live WebDAV checks remain separate until access is restored.
 - [ ] A backup can restore receipt records, decisions, and access to original files.
-- [ ] The user can see all items that need intervention without reading logs.
-- [ ] If automatic approval is enabled, only eligible, unambiguous matches proceed automatically.
-- [ ] Completed items show their approval method and confirmed upload result.
+- [x] The user can see all items that need intervention without reading logs (worker health, connection status and receipt progress/failures).
+- [ ] If automatic approval is enabled, only eligible, unambiguous matches proceed automatically. Deferred by operator choice: automatic approval is unavailable.
+- [x] Completed items show their approval method and confirmed upload result.
 
 ## Deferred validation: Live WebDAV access
 

@@ -17,13 +17,15 @@ type Review struct {
 }
 
 type ReviewEvent struct {
-	ID            int64
-	Action        string
-	Analysis      *Analysis
-	TenantID      string
-	TransactionID string
-	Retention     string
-	CreatedAt     string
+	ApprovalMethod string
+	ApprovalPolicy string
+	ID             int64
+	Action         string
+	Analysis       *Analysis
+	TenantID       string
+	TransactionID  string
+	Retention      string
+	CreatedAt      string
 }
 
 var ErrReviewConflict = errors.New("review conflict")
@@ -54,7 +56,7 @@ func (s *Store) Reviews(ctx context.Context) (map[string]Review, error) {
 }
 
 func (s *Store) ReviewHistory(ctx context.Context, hash string) ([]ReviewEvent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,action,analysis,COALESCE(tenant_id,''),COALESCE(bank_transaction_id,''),retention,created_at FROM receipt_review_event WHERE receipt_sha256=? ORDER BY id DESC`, hash)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,action,analysis,COALESCE(tenant_id,''),COALESCE(bank_transaction_id,''),retention,created_at,approval_method,approval_policy FROM receipt_review_event WHERE receipt_sha256=? ORDER BY id DESC`, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +65,7 @@ func (s *Store) ReviewHistory(ctx context.Context, hash string) ([]ReviewEvent, 
 	for rows.Next() {
 		var e ReviewEvent
 		var analysis sql.NullString
-		if err := rows.Scan(&e.ID, &e.Action, &analysis, &e.TenantID, &e.TransactionID, &e.Retention, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.Action, &analysis, &e.TenantID, &e.TransactionID, &e.Retention, &e.CreatedAt, &e.ApprovalMethod, &e.ApprovalPolicy); err != nil {
 			return nil, err
 		}
 		if analysis.Valid {
@@ -185,7 +187,7 @@ func (s *Store) Decide(ctx context.Context, hash, action, target string) error {
 	if action == "ignored" {
 		retention = "retain_in_intake"
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO receipt_review_event(receipt_sha256,action,analysis,tenant_id,bank_transaction_id,retention) VALUES (?,?,?,?,?,?)`, hash, action, analysis, tenant, transaction, retention)
+	_, err = tx.ExecContext(ctx, `INSERT INTO receipt_review_event(receipt_sha256,action,analysis,tenant_id,bank_transaction_id,retention,approval_method,approval_policy) VALUES (?,?,?,?,?,?,CASE WHEN ?='approved' THEN 'manual' ELSE '' END,CASE WHEN ?='approved' THEN 'manual-v1' ELSE '' END)`, hash, action, analysis, tenant, transaction, retention, action, action)
 	if err != nil {
 		return err
 	}

@@ -227,6 +227,10 @@ func TestWebDAVBackgroundAndPreview(t *testing.T) {
 		t.Fatal("outage not visible")
 	}
 	dav.offline.Store(false)
+	// Advance the durable retry clock instead of waiting for production backoff.
+	if _, err := conn.Exec(`UPDATE receipt SET updated_at=datetime('now','-2 hours') WHERE sha256=?`, lateHash); err != nil {
+		t.Fatal(err)
+	}
 	waitFor(func(rs []receipt.Record) bool {
 		for _, r := range rs {
 			if r.SHA256 == lateHash {
@@ -281,7 +285,10 @@ func TestWebDAVBackgroundAndPreview(t *testing.T) {
 	if scanner.calls.Load() != 3 {
 		t.Fatalf("unconfigured source was scanned: %d", scanner.calls.Load())
 	}
-	// Reconfiguring the endpoint resumes pending work; extracted receipts are not repeated.
+	// Reconfiguring the endpoint resumes pending work after its durable backoff.
+	if _, err := conn.Exec(`UPDATE receipt SET updated_at=datetime('now','-2 hours') WHERE sha256=?`, pendingHash); err != nil {
+		t.Fatal(err)
+	}
 	s, cancel, done = start(cfg)
 	waitFor(func(rs []receipt.Record) bool {
 		for _, r := range rs {

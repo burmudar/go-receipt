@@ -142,7 +142,7 @@ Run the service on the media PC:
 go run . serve --dir ./inbox
 ```
 
-Set `OPENAI_API_KEY` or use `--api-key-file` as for `scan`. The service imports and extracts pending receipts immediately and then every minute; `--receipt-interval` changes the interval. Without either `--dir` or `--webdav-url`, background receipt import is disabled. Failed extractions remain visible and are not retried automatically; stop the service and use `scan retry` to retry them. View originals and extraction results under **View receipts**. The document is read from the retained source and is refused if its hash has changed.
+Set `OPENAI_API_KEY` or use `--api-key-file` as for `scan`. The service imports and extracts pending receipts immediately and then every minute; `--receipt-interval` changes the interval. Without either `--dir` or `--webdav-url`, background receipt import is disabled. Failed extractions remain visible and receive up to five total automatic attempts with persisted backoff; after exhaustion, stop the service and use `scan retry` for an explicit retry. View originals and extraction results under **View receipts**. The document is read from the retained source and is refused if its hash has changed.
 
 To use WebDAV in the running service, set `WEBDAV_PASSWORD` or `--webdav-password-file` and run:
 
@@ -151,7 +151,7 @@ go run . serve --webdav-url https://storage.example.com/dav/ \
   --webdav-user your-user --webdav-inbox inbox
 ```
 
-You may also supply `--dir` to discover local and WebDAV receipts together. Identical content is imported only once, retaining the first source location. Keep that original accessible: a duplicate at another location does not replace it. Requests are restricted to the configured endpoint; redirects are not followed. Configure the same WebDAV endpoint to read previously imported WebDAV sources. Pending records whose source is unconfigured or temporarily unavailable remain pending and are retried on the next pass; discovery and processing errors appear on the status page and in service logs. A changed source fails hash verification and requires restoring the original and running `scan retry` with its source configuration.
+You may also supply `--dir` to discover local and WebDAV receipts together. Identical content is imported only once, retaining the first source location. Keep that original accessible: a duplicate at another location does not replace it. Requests are restricted to the configured endpoint; redirects are not followed. Configure the same WebDAV endpoint to read previously imported WebDAV sources. Pending records whose source is unconfigured or temporarily unavailable are retried with backoff and become failed after five unsuccessful automatic attempts; discovery and processing errors appear on the status page and receipt pages. A changed source fails hash verification; restore the original before another attempt. After the retry budget is exhausted, use `scan retry` with its source configuration.
 
 The service listens on `127.0.0.1:11211`. The default public URL is `http://localhost:11211`. Open the status page, select **Connect to Xero**, and authorise the organisation. The service uses one organisation, so authorise exactly one. If more than one organisation is connected to the Xero app, the connection fails. Disconnect the app from the other organisations in Xero, then connect again. To change the organisation, select **Disconnect** and connect again.
 
@@ -209,6 +209,8 @@ go run . serve --dir ./inbox --public-url https://receipts.home.arpa
 `RCPT_PASSWORD` takes precedence over `--password-file`. The service does not start without a password if the public URL or the listen address is not local. A restart ends all login sessions. Do not expose the service to the internet.
 
 `go run . serve --help` shows the timeout and check-interval flags.
+
+The status page shows durable worker health and provides pause/resume controls for background processing. All approvals remain manual and record their method and policy in review history. Apply the latest migration before starting the updated service. See [operations, retry policy, backups and restore](docs/operations.md) for deployment requirements and recovery procedures.
 
 ## Validation
 

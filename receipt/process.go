@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // ErrSourceUnconfigured indicates that the source for a receipt is not configured.
@@ -33,6 +34,16 @@ type Progress struct {
 // unconfigured or temporarily unavailable sources retain their existing state.
 // Run only one processor per database until worker coordination is introduced.
 func (s *Store) Process(ctx context.Context, source Source, scanner Scanner, retryFailed bool) (Progress, error) {
+	return s.process(ctx, source, scanner, retryFailed, false)
+}
+
+// ProcessAutomatic retries failed extraction at most five times total, with
+// persisted attempt counts and exponential delays. Explicit CLI retries remain available.
+func (s *Store) ProcessAutomatic(ctx context.Context, source Source, scanner Scanner) (Progress, error) {
+	return s.process(ctx, source, scanner, true, true)
+}
+
+func (s *Store) process(ctx context.Context, source Source, scanner Scanner, retryFailed, automatic bool) (Progress, error) {
 	var progress Progress
 	records, err := s.List(ctx)
 	if err != nil {
@@ -50,7 +61,15 @@ func (s *Store) Process(ctx context.Context, source Source, scanner Scanner, ret
 			continue
 		}
 
-		if err := s.startAttempt(ctx, r.SHA256); err != nil {
+		if automatic && r.Attempts > 0 {
+			delay := time.Minute * time.Duration(1<<min(r.Attempts-1, 6))
+			if (r.Status == Failed && r.Attempts >= 5) || time.Since(r.UpdatedAt) < delay {
+				progress.Skipped++
+				continue
+			}
+		}
+
+		if err := s.startAttempt(ctx, r.SHA256, automatic); err != nil {
 			return progress, err
 		}
 
@@ -61,6 +80,15 @@ func (s *Store) Process(ctx context.Context, source Source, scanner Scanner, ret
 		}
 
 		if errors.Is(scanErr, ErrSourceUnconfigured) || errors.Is(scanErr, ErrSourceUnavailable) {
+			if automatic {
+				if r.Attempts+1 >= 5 {
+					if err := s.finish(ctx, r.SHA256, analysis, scanErr); err != nil {
+						return progress, err
+					}
+				} else if _, err := s.db.ExecContext(ctx, `UPDATE receipt SET last_error=? WHERE sha256=?`, scanErr.Error(), r.SHA256); err != nil {
+					return progress, err
+				}
+			}
 			progress.Skipped++
 			failures = append(failures, fmt.Errorf("receipt %s (%s): %w", r.SHA256, r.Name, scanErr))
 			continue
