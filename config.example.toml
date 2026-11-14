@@ -29,3 +29,10 @@ timeout = "2m"
 
 [xero]
 transaction_interval = "15m"
+
+# Optional. Existing tag IDs from your Paperless instance, comma separated.
+# [paperless]
+# url = "https://paperless.home.arpa"
+# token_file = "secrets/paperless-token"
+# tags = "7,12"
+# timeout = "1m"

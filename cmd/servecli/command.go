@@ -17,6 +17,7 @@ import (
 	"github.com/burmudar/go-receipt/db"
 	"github.com/burmudar/go-receipt/extract"
 	"github.com/burmudar/go-receipt/intake"
+	"github.com/burmudar/go-receipt/paperless"
 	"github.com/burmudar/go-receipt/receipt"
 	"github.com/burmudar/go-receipt/server"
 	"github.com/spf13/cobra"
@@ -25,6 +26,9 @@ import (
 // Cmd runs the receipt service. database points to the root --db flag value.
 func Cmd(database *string) *cobra.Command {
 	var listen, publicURL, passwordFile, configFile string
+	var paperlessURL, paperlessTokenFile string
+	var paperlessTags []int
+	var paperlessTimeout time.Duration
 	var requestTimeout, xeroTimeout, checkInterval time.Duration
 	var folder, apiKeyFile, model string
 	var webDAVURL, webDAVUser, webDAVPasswordFile, webDAVInbox string
@@ -132,7 +136,15 @@ to the proxy address and set a password with RCPT_PASSWORD or --password-file.`,
 					return intake.DiscoverSources(ctx, folder, webDAV)
 				}
 			}
+			var archiveToken string
+			if paperlessURL != "" {
+				archiveToken, err = readFileSecret(paperlessTokenFile, "Paperless token")
+				if err != nil {
+					return err
+				}
+			}
 			srv, err := server.New(server.Config{
+				Paperless:           paperless.Config{URL: paperlessURL, Token: archiveToken, Tags: paperlessTags, Timeout: paperlessTimeout},
 				DB:                  conn,
 				Listen:              listen,
 				PublicURL:           public,
@@ -157,6 +169,10 @@ to the proxy address and set a password with RCPT_PASSWORD or --password-file.`,
 	}
 
 	flags := cmd.Flags()
+	flags.StringVar(&paperlessURL, "paperless-url", "", "Paperless base URL; empty disables archiving")
+	flags.StringVar(&paperlessTokenFile, "paperless-token-file", "", "Paperless API token file")
+	flags.IntSliceVar(&paperlessTags, "paperless-tags", nil, "Existing Paperless receipt tag IDs, comma separated")
+	flags.DurationVar(&paperlessTimeout, "paperless-timeout", time.Minute, "Timeout per Paperless request")
 	flags.StringVar(&configFile, "config", "", "TOML service configuration file")
 	flags.StringVar(&folder, "dir", "", "Local receipt folder to import in the background")
 	flags.StringVar(&webDAVURL, "webdav-url", "", "WebDAV server URL")
