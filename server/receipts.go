@@ -73,30 +73,34 @@ func (s *Server) refreshPeriodically(ctx context.Context) {
 }
 
 func (s *Server) receipts(w http.ResponseWriter, r *http.Request) {
-	records, err := receipt.NewStore(s.cfg.DB).List(r.Context())
-	if err != nil {
-		s.fail(w, http.StatusInternalServerError, err)
-		return
-	}
-	reviews, err := receipt.NewStore(s.cfg.DB).Reviews(r.Context())
-	if err != nil {
-		s.fail(w, http.StatusInternalServerError, err)
-		return
-	}
-	attachments, err := s.attachmentProgress(r.Context())
+	items, err := s.receiptItems(r.Context())
 	if err != nil {
 		s.fail(w, 500, err)
 		return
 	}
-	archives, err := receipt.NewStore(s.cfg.DB).Archives(r.Context())
+	s.render(w, http.StatusOK, "receipts.html", receiptList(items, r.URL.Query()))
+}
+
+func (s *Server) receiptItems(ctx context.Context) ([]receiptItem, error) {
+	records, err := receipt.NewStore(s.cfg.DB).List(ctx)
 	if err != nil {
-		s.fail(w, 500, err)
-		return
+		return nil, err
 	}
-	cleanups, err := receipt.NewStore(s.cfg.DB).Cleanups(r.Context())
+	reviews, err := receipt.NewStore(s.cfg.DB).Reviews(ctx)
 	if err != nil {
-		s.fail(w, 500, err)
-		return
+		return nil, err
+	}
+	attachments, err := s.attachmentProgress(ctx)
+	if err != nil {
+		return nil, err
+	}
+	archives, err := receipt.NewStore(s.cfg.DB).Archives(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cleanups, err := receipt.NewStore(s.cfg.DB).Cleanups(ctx)
+	if err != nil {
+		return nil, err
 	}
 	var items []receiptItem
 	for _, record := range records {
@@ -108,23 +112,13 @@ func (s *Server) receipts(w http.ResponseWriter, r *http.Request) {
 			item.State = "completed"
 		}
 		item.ArchiveConfigured = s.archive != nil
-		if filter := r.URL.Query().Get("archive"); filter != "" {
-			state := item.Archive.State
-			if state == "" || state == "uploading" || state == "consuming" {
-				state = "pending"
-			}
-			if state != filter {
-				continue
-			}
-		}
-		if r.URL.Query().Get("state") == "" || r.URL.Query().Get("state") == item.State {
-			items = append(items, item)
-		}
+		items = append(items, item)
 	}
-	s.render(w, http.StatusOK, "receipts.html", struct {
-		Items  []receiptItem
-		Filter string
-	}{items, r.URL.Query().Get("state") + " " + r.URL.Query().Get("archive")})
+	// List is oldest first; the queue puts recent imports first.
+	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+		items[i], items[j] = items[j], items[i]
+	}
+	return items, nil
 }
 
 func (s *Server) findReceipt(r *http.Request) (receipt.Record, error) {
@@ -141,27 +135,30 @@ func (s *Server) findReceipt(r *http.Request) (receipt.Record, error) {
 }
 
 func (s *Server) receiptDetail(w http.ResponseWriter, r *http.Request) {
-	record, err := s.findReceipt(r)
+	items, err := s.receiptItems(r.Context())
 	if err != nil {
-		s.fail(w, http.StatusInternalServerError, err)
+		s.fail(w, 500, err)
 		return
 	}
-	if record.SHA256 == "" {
+	var item receiptItem
+	for _, candidate := range items {
+		if candidate.SHA256 == r.PathValue("hash") {
+			item = candidate
+			break
+		}
+	}
+	if item.SHA256 == "" {
 		http.NotFound(w, r)
 		return
 	}
+	record := item.Record
 	store := receipt.NewStore(s.cfg.DB)
-	reviews, err := store.Reviews(r.Context())
-	if err != nil {
-		s.fail(w, http.StatusInternalServerError, err)
-		return
-	}
 	history, err := store.ReviewHistory(r.Context(), record.SHA256)
 	if err != nil {
-		s.fail(w, http.StatusInternalServerError, err)
+		s.fail(w, 500, err)
 		return
 	}
-	item := makeReceiptItem(record, reviews[record.SHA256])
+	navigation := queueNavigation(items, record.SHA256, r.URL.Query().Get("queue"))
 	var transactions []xero.BankTransaction
 	var suggestions []xero.Suggestion
 	if s.xero != nil {
@@ -189,29 +186,7 @@ func (s *Server) receiptDetail(w http.ResponseWriter, r *http.Request) {
 			suggestions[i].Transaction.ReceiptLinks = links[suggestions[i].Transaction.ID]
 		}
 	}
-	attachments, err := s.attachmentProgress(r.Context())
-	if err != nil {
-		s.fail(w, 500, err)
-		return
-	}
-	archives, err := store.Archives(r.Context())
-	if err != nil {
-		s.fail(w, 500, err)
-		return
-	}
-	cleanups, err := store.Cleanups(r.Context())
-	if err != nil {
-		s.fail(w, 500, err)
-		return
-	}
-	item.Cleanup = cleanups[record.SHA256]
-	item.Archive = archives[record.SHA256]
-	item.ArchiveConfigured = s.archive != nil
-	item.Attachment = attachments[record.SHA256]
-	if item.Complete() {
-		item.State = "completed"
-	}
-	s.render(w, http.StatusOK, "receipt.html", receiptDetailPage{Item: item, History: history, Transactions: transactions, Suggestions: suggestions, Query: r.URL.Query().Get("q")})
+	s.render(w, http.StatusOK, "receipt.html", receiptDetailPage{Item: item, History: history, Transactions: transactions, Suggestions: suggestions, Query: r.URL.Query().Get("q"), Navigation: navigation})
 }
 
 func (s *Server) receiptDocument(w http.ResponseWriter, r *http.Request) {

@@ -1,12 +1,36 @@
-{{template "head" "wide"}}
-<p><a href="/">Status</a></p>
-<h2>Receipts</h2>
-<nav>Show: <a href="/receipts">All</a> · <a href="?state=pending">Processing</a> · <a href="?state=needs_review">Needs review</a> · <a href="?state=unmatched">Unmatched</a> · <a href="?state=approved">Approved</a> · <a href="?state=rejected">Rejected</a> · <a href="?state=ignored">Ignored</a> · <a href="?state=failed">Failed</a> · <a href="?state=completed">Completed</a></nav>
-<nav>Paperless: <a href="?archive=pending">Pending</a> · <a href="?archive=failed">Failed</a> · <a href="?archive=confirmed">Confirmed</a></nav>
-{{if .Filter}}<p>Showing: {{.Filter}}</p>{{end}}
+{{template "head" "receipts"}}
+<header class="page-heading"><div><p class="eyebrow">Your workspace</p><h1>Receipt queue</h1><p>Review the details, choose a transaction, and track delivery.</p></div><a href="/" role="button" class="secondary outline">Processing status</a></header>
+<section class="stats" aria-label="Receipt overview">
+<a class="stat" href="/receipts"><strong>{{.Total}}</strong><span>All receipts</span></a>
+<a class="stat" href="/receipts?attention=1"><strong>{{.NeedsReview}}</strong><span>Needs attention</span></a>
+<a class="stat" href="/receipts?state=completed"><strong>{{.Completed}}</strong><span>Completed</span></a>
+<div class="stat"><strong>{{.Failures}}</strong><span>With processing errors</span></div>
+</section>
+<section class="panel" aria-label="Receipt queue">
+<form method="get" action="/receipts" aria-label="Filter receipts">
+<div class="filter-form">
+<label>Find a receipt<input type="search" name="q" value="{{.Query}}" placeholder="Merchant, filename, amount, date or ID"></label>
+<label>Review status<select name="state">
+<option value="">All statuses</option>
+<option value="pending"{{if eq .StateFilter "pending"}} selected{{end}}>Processing</option>
+<option value="needs_review"{{if eq .StateFilter "needs_review"}} selected{{end}}>Needs review</option>
+<option value="unmatched"{{if eq .StateFilter "unmatched"}} selected{{end}}>Unmatched</option>
+<option value="approved"{{if eq .StateFilter "approved"}} selected{{end}}>Approved</option>
+<option value="rejected"{{if eq .StateFilter "rejected"}} selected{{end}}>Rejected</option>
+<option value="ignored"{{if eq .StateFilter "ignored"}} selected{{end}}>Ignored</option>
+<option value="failed"{{if eq .StateFilter "failed"}} selected{{end}}>Failed</option>
+<option value="completed"{{if eq .StateFilter "completed"}} selected{{end}}>Completed</option>
+</select></label>
+<label>Paperless archive<select name="archive"><option value="">All archive states</option><option value="pending"{{if eq .ArchiveFilter "pending"}} selected{{end}}>Pending</option><option value="failed"{{if eq .ArchiveFilter "failed"}} selected{{end}}>Failed</option><option value="confirmed"{{if eq .ArchiveFilter "confirmed"}} selected{{end}}>Confirmed</option></select></label>
+<button type="submit">Apply filters</button>
+</div><div class="filter-extras"><label><input type="checkbox" name="attention" value="1"{{if .Attention}} checked{{end}}> Only receipts needing review or with errors</label><a href="/receipts">Clear filters</a></div>
+</form>
+<div class="panel-footer"><p class="muted">{{.Matching}} of {{.Total}} receipts · newest imports first</p></div>
 {{if .Items}}
-<table><thead><tr><th>Receipt</th><th>Processing</th><th>Review</th><th>Error</th></tr></thead><tbody>
-{{range .Items}}<tr><td><a href="/receipts/{{.SHA256}}">{{.Name}}</a></td><td>{{.Status}}</td><td>{{.State}}{{with .Attachment.State}} — attachment {{.}}{{end}} — archive {{.ArchiveStatus}} — cleanup {{.CleanupStatus}}{{if .Complete}} · attached and archived{{end}}</td><td class="error">{{.LastError}} {{.Attachment.Error}} {{.Archive.Error}} {{.Cleanup.Error}}</td></tr>{{end}}
-</tbody></table>
-{{else}}<p>No receipts in this view.</p>{{end}}
+<div class="table-wrap" tabindex="0" role="region" aria-label="Receipt results"><table class="receipt-table"><thead><tr><th scope="col">Receipt / merchant</th><th scope="col" class="number">Amount</th><th scope="col">Review</th><th scope="col">Delivery / errors</th></tr></thead><tbody>
+{{range .Items}}<tr><td><a class="receipt-name" href="{{$.DetailURL .SHA256}}">{{.Name}}</a>{{with .Effective}}<span class="cell-note">{{.Merchant}} · {{.Date.Format "2006-01-02"}}</span>{{end}}<span class="cell-note">Extraction: {{.Status}}</span></td><td class="number">{{with .Effective}}{{.Total}} {{.Currency}}{{else}}—{{end}}</td><td>{{template "badge" .State}}<span class="cell-note"><a href="{{$.DetailURL .SHA256}}">{{if .NeedsAttention}}Review receipt{{else}}View details{{end}} →</a></span></td><td>{{if .Complete}}<span class="badge" data-state="completed">attached and archived</span>{{end}}<span class="cell-note">{{with .Attachment.State}}attachment {{.}}{{else}}attachment pending{{end}}</span><span class="cell-note">archive {{.ArchiveStatus}}</span><span class="cell-note">cleanup {{.CleanupStatus}}</span>{{if .HasFailure}}<p class="error">{{.LastError}} {{.Attachment.Error}} {{.Archive.Error}} {{.Cleanup.Error}}</p>{{end}}</td></tr>{{end}}
+</tbody></table></div>
+<nav class="pagination" aria-label="Receipt pages">{{if .Previous}}<a href="{{.Previous}}" role="button" class="secondary outline">← Previous</a>{{else}}<span></span>{{end}}<span>Page {{.Page}} of {{.Pages}}</span>{{if .Next}}<a href="{{.Next}}" role="button" class="secondary outline">Next →</a>{{else}}<span></span>{{end}}</nav>
+{{else}}<div class="empty-state"><h2>No receipts in this view.</h2>{{if .Total}}<p>Try a different search or clear the filters to see every receipt.</p><a href="/receipts" role="button" class="secondary outline">Show all receipts</a>{{else}}<p>Receipts will appear here after the configured intake is scanned.</p><a href="/" role="button" class="secondary outline">Check intake and worker status</a>{{end}}</div>{{end}}
+</section>
 {{template "foot"}}

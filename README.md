@@ -14,7 +14,7 @@ go tool goose -dir . sqlite3 ./app.db up
 mkdir -p inbox
 ```
 
-All commands accept `--db` to select the database. The default is `app.db`. The service can also get its database path from a TOML file; the other commands still use `--db`.
+All commands accept `--db` to select the database. The default is `app.db`. The service and `scan retry` can also get their database path from a TOML file; other commands still use `--db`.
 
 The database contains receipt hashes, source locations, extracted data, OAuth client secrets, and Xero tokens. It does not contain original file bytes. Restrict access to the database, intake files, and their backups. The default inbox, database files, and default secret files are excluded from Git.
 
@@ -48,7 +48,9 @@ Process pending receipts and retry failed extractions:
 go run . scan retry
 ```
 
-Retries read the saved source locations and verify each file against its recorded hash before extraction. Local retries do not need `--dir`, but the original folder must remain accessible. WebDAV retries need the connection settings shown below.
+When using a service configuration, use `go run . scan retry --config config.toml` instead. It loads the database, OpenAI and WebDAV settings from the same TOML file as `serve`, with paths relative to that file. Explicit CLI flags override config values; in config mode, secrets come from configured files rather than environment variables. Stop the service before running either retry command.
+
+Retries read the saved source locations and verify each file against its recorded hash before extraction. Local retries do not need `--dir`, but the original folder must remain accessible. WebDAV retries need the connection settings shown below (or in the config file).
 
 ### Processing rules
 
@@ -57,7 +59,7 @@ Retries read the saved source locations and verify each file against its recorde
 - There is no separate staging directory. After durable Xero attachment and Paperless consumption confirmation, the service deletes hash-verified intake files on a best-effort basis. Cleanup retries errors, and treats an absent file with an accessible parent as complete. Replacement races remain possible; see the cleanup safety document.
 - A changed source, or a missing local file, is recorded as a failure. An unconfigured or temporarily unavailable WebDAV source leaves a pending receipt pending. Restore the original before retrying; no extraction request is sent until the hash matches.
 - `pending` means the receipt record is saved but has no completed extraction.
-- `extracted` means the extraction passed field validation. It does not mean approved, matched, attached, or reconciled.
+- `extracted` means valid receipt details are available, either from extraction or manual entry. The `analysis_source` field distinguishes them. It does not mean approved, matched, attached, or reconciled.
 - `failed` means source access, source verification, extraction, or validation failed. `scan list` includes the error and attempt count.
 - Normal scans process pending receipts. Successful and failed receipts are skipped. Use `scan retry` to include failed receipts.
 - A failure does not stop extraction of other receipts. The command prints a JSON summary and exits with an error if that run had failures.
@@ -167,7 +169,7 @@ A refresh saves each page when it arrives. If a refresh fails, the status page s
 
 ### Manual review
 
-Open **View receipts** to filter by processing and review status. For an extracted receipt, correct its merchant, amount, currency, or date without overwriting the original extraction. Suggested matches use all stored reconciled, authorised transactions in the connected organisation with exactly matching amount and currency and a date within seven days. They rank exact contact/merchant and closer dates higher; match confidence is a heuristic, not extraction confidence or a probability. Suggestions never approve automatically, even when there is only one. Existing approved receipt links and Xero's attachment indicator are shown as duplicate warnings; the latter does not identify the attachment. Search stored transactions by contact, reference, account, date, amount, or ID, then approve or reject a selected transaction. Approval is limited to reconciled, authorised transactions in the connected organisation; it queues an attachment upload without changing reconciliation in Xero. Only the latest 100 search results are shown; narrow the search to find older transactions.
+Open **View receipts** to filter by processing and review status. For a failed extraction, open the receipt and choose **Enter receipt details manually**; supply all four fields from the original. The failed extraction has no saved partial values. The entry and previous error are recorded in review history, and the original file must still be accessible and unchanged for delivery. For an extracted receipt, correct its merchant, amount, currency, or date without overwriting the original extraction. Suggested matches use all stored reconciled, authorised transactions in the connected organisation with exactly matching amount and currency and a date within seven days. They rank exact contact/merchant and closer dates higher; match confidence is a heuristic, not extraction confidence or a probability. Suggestions never approve automatically, even when there is only one. Existing approved receipt links and Xero's attachment indicator are shown as duplicate warnings; the latter does not identify the attachment. Search stored transactions by contact, reference, account, date, amount, or ID, then approve or reject a selected transaction. Approval is limited to reconciled, authorised transactions in the connected organisation; it queues an attachment upload without changing reconciliation in Xero. Only the latest 100 search results are shown; narrow the search to find older transactions.
 
 A receipt can be marked unmatched while it waits for reconciliation in Xero, or ignored. **Ignored receipts remain in the intake**; the decision and retention choice are recorded in the review history. Ignored receipts are neither archived nor deleted. Confirmed attachments can be archived when Paperless is configured; intake cleanup follows confirmed attachment and archive, subject to the safety limitations in [cleanup safety and recovery](docs/intake-cleanup.md). Before upload starts, return an approval to review to edit it or disconnect the Xero organisation. Corrections and decisions have a timestamped history, including the data and transaction reviewed.
 
@@ -209,6 +211,8 @@ go run . serve --dir ./inbox --public-url https://receipts.home.arpa
 `RCPT_PASSWORD` takes precedence over `--password-file`. The service does not start without a password if the public URL or the listen address is not local. A restart ends all login sessions. Do not expose the service to the internet.
 
 `go run . serve --help` shows the timeout and check-interval flags.
+
+The browser UI now provides a searchable receipt queue with combined filters and pagination, a document-and-review workspace, and an operations dashboard. It uses locally bundled Pico CSS with responsive Go templates; no frontend build step or CDN access is needed. See [UI architecture and browser checks](docs/ui.md).
 
 The status page shows durable worker health and provides pause/resume controls for background processing. All approvals remain manual and record their method and policy in review history. Apply the latest migration before starting the updated service. See [operations, retry policy, backups and restore](docs/operations.md) for deployment requirements and recovery procedures.
 

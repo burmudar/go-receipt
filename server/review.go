@@ -50,6 +50,7 @@ func (item receiptItem) TitleDate() string {
 }
 
 type receiptDetailPage struct {
+	Navigation   receiptNavigation
 	Item         receiptItem
 	History      []receipt.ReviewEvent
 	Transactions []xero.BankTransaction
@@ -90,8 +91,13 @@ func (s *Server) correctReceipt(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if record.Analysis == nil {
-		http.Error(w, "receipt has no extraction", http.StatusConflict)
+	manual := r.PostFormValue("mode") == "manual"
+	if manual && record.Status != receipt.Failed {
+		http.Error(w, "receipt is no longer failed; reload the page", http.StatusConflict)
+		return
+	}
+	if !manual && (record.Status != receipt.Extracted || record.Analysis == nil) {
+		http.Error(w, "receipt has no extraction; reload the page", http.StatusConflict)
 		return
 	}
 	date, err := time.Parse(time.DateOnly, strings.TrimSpace(r.PostFormValue("date")))
@@ -99,16 +105,25 @@ func (s *Server) correctReceipt(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "date must be YYYY-MM-DD", http.StatusBadRequest)
 		return
 	}
-	analysis := receipt.Analysis{Merchant: strings.TrimSpace(r.PostFormValue("merchant")), Total: strings.TrimSpace(r.PostFormValue("total")), Currency: strings.TrimSpace(r.PostFormValue("currency")), Date: date, Confidence: record.Analysis.Confidence}
+	analysis := receipt.Analysis{Merchant: strings.TrimSpace(r.PostFormValue("merchant")), Total: strings.TrimSpace(r.PostFormValue("total")), Currency: strings.TrimSpace(r.PostFormValue("currency")), Date: date}
+	if record.Analysis != nil {
+		analysis.Confidence = record.Analysis.Confidence
+	}
 	if err := analysis.Validate(); err != nil {
-		http.Error(w, fmt.Sprintf("invalid correction: %v", err), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("invalid receipt details: %v", err), http.StatusBadRequest)
 		return
 	}
-	if err := receipt.NewStore(s.cfg.DB).Correct(r.Context(), record.SHA256, analysis); err != nil {
+	store := receipt.NewStore(s.cfg.DB)
+	if manual {
+		err = store.EnterManually(r.Context(), record.SHA256, analysis)
+	} else {
+		err = store.Correct(r.Context(), record.SHA256, analysis)
+	}
+	if err != nil {
 		s.reviewError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/receipts/"+record.SHA256, http.StatusSeeOther)
+	http.Redirect(w, r, receiptURL(record.SHA256, r.PostFormValue("queue")), http.StatusSeeOther)
 }
 
 func (s *Server) decideReceipt(w http.ResponseWriter, r *http.Request) {
@@ -126,11 +141,26 @@ func (s *Server) decideReceipt(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if err := receipt.NewStore(s.cfg.DB).Decide(r.Context(), record.SHA256, r.PostFormValue("action"), r.PostFormValue("transaction")); err != nil {
+	action := r.PostFormValue("action")
+	destination := receiptURL(record.SHA256, r.PostFormValue("queue"))
+	if action == "approved_next" {
+		items, err := s.receiptItems(r.Context())
+		if err != nil {
+			s.fail(w, 500, err)
+			return
+		}
+		nav := queueNavigation(items, record.SHA256, r.PostFormValue("queue"))
+		destination = nav.Next
+		if destination == "" {
+			destination = nav.QueueURL
+		}
+		action = "approved"
+	}
+	if err := receipt.NewStore(s.cfg.DB).Decide(r.Context(), record.SHA256, action, r.PostFormValue("transaction")); err != nil {
 		s.reviewError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/receipts/"+record.SHA256, http.StatusSeeOther)
+	http.Redirect(w, r, destination, http.StatusSeeOther)
 }
 func (s *Server) reviewError(w http.ResponseWriter, err error) {
 	if errors.Is(err, receipt.ErrReviewConflict) {

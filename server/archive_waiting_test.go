@@ -37,7 +37,7 @@ func TestArchiveWaitingReason(t *testing.T) {
 			if err := pages.ExecuteTemplate(&out, "receipt.html", receiptDetailPage{Item: item}); err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(out.String(), "<dt>Paperless archive</dt><dd>"+tc.want) {
+			if !strings.Contains(out.String(), "<strong>Paperless archive</strong>"+tc.want) {
 				t.Fatalf("expected specific waiting reason %q", tc.want)
 			}
 			if strings.Contains(out.String(), "awaiting confirmed attachment and Paperless configuration") {

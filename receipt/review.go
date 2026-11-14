@@ -25,6 +25,7 @@ type ReviewEvent struct {
 	TenantID       string
 	TransactionID  string
 	Retention      string
+	Detail         string
 	CreatedAt      string
 }
 
@@ -56,7 +57,7 @@ func (s *Store) Reviews(ctx context.Context) (map[string]Review, error) {
 }
 
 func (s *Store) ReviewHistory(ctx context.Context, hash string) ([]ReviewEvent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,action,analysis,COALESCE(tenant_id,''),COALESCE(bank_transaction_id,''),retention,created_at,approval_method,approval_policy FROM receipt_review_event WHERE receipt_sha256=? ORDER BY id DESC`, hash)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,action,analysis,COALESCE(tenant_id,''),COALESCE(bank_transaction_id,''),retention,created_at,approval_method,approval_policy,detail FROM receipt_review_event WHERE receipt_sha256=? ORDER BY id DESC`, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +66,7 @@ func (s *Store) ReviewHistory(ctx context.Context, hash string) ([]ReviewEvent, 
 	for rows.Next() {
 		var e ReviewEvent
 		var analysis sql.NullString
-		if err := rows.Scan(&e.ID, &e.Action, &analysis, &e.TenantID, &e.TransactionID, &e.Retention, &e.CreatedAt, &e.ApprovalMethod, &e.ApprovalPolicy); err != nil {
+		if err := rows.Scan(&e.ID, &e.Action, &analysis, &e.TenantID, &e.TransactionID, &e.Retention, &e.CreatedAt, &e.ApprovalMethod, &e.ApprovalPolicy, &e.Detail); err != nil {
 			return nil, err
 		}
 		if analysis.Valid {
@@ -76,6 +77,52 @@ func (s *Store) ReviewHistory(ctx context.Context, hash string) ([]ReviewEvent, 
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+// EnterManually records complete, validated details for a failed extraction.
+// No machine extraction is claimed; the previous error remains in the audit history.
+func (s *Store) EnterManually(ctx context.Context, hash string, analysis Analysis) error {
+	// Confidence is not meaningful for manually entered data.
+	analysis.Confidence = 0
+	if err := analysis.Validate(); err != nil {
+		return fmt.Errorf("invalid manual entry: %w", err)
+	}
+	data, err := json.Marshal(analysis)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var status, state, previousError string
+	err = tx.QueryRowContext(ctx, `SELECT r.status, COALESCE(v.state,'needs_review'), r.last_error FROM receipt r LEFT JOIN receipt_review v ON v.receipt_sha256=r.sha256 WHERE r.sha256=?`, hash).Scan(&status, &state, &previousError)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: receipt not found", ErrReviewConflict)
+	}
+	if err != nil {
+		return err
+	}
+	if status != Failed || state == "approved" {
+		return fmt.Errorf("%w: manual entry requires a failed, unapproved receipt", ErrReviewConflict)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE receipt SET status='extracted', analysis=?, analysis_source='manual', last_error='', updated_at=CURRENT_TIMESTAMP, extracted_at=CURRENT_TIMESTAMP WHERE sha256=? AND status='failed'`, string(data), hash)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("%w: receipt status changed", ErrReviewConflict)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO receipt_review_event(receipt_sha256,action,analysis,detail) VALUES (?,'corrected',?,?)`, hash, string(data), "Manual entry after extraction failed: "+previousError)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Correct saves a validated correction without changing the original extraction.

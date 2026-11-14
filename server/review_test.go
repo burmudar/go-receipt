@@ -189,6 +189,13 @@ func TestManualReviewWorkflow(t *testing.T) {
 	if initial.Code != 200 || !strings.Contains(page, "Approve suggested match") || !strings.Contains(page, "Merchant matches contact") || !strings.Contains(page, "Same date") || strings.Contains(page, "value=\"foreign\"") {
 		t.Fatalf("suggestions: %d %s", initial.Code, page)
 	}
+	if !strings.Contains(page, `href="#suggested-matches"`) ||
+		strings.Index(page, `id="suggested-matches"`) >= strings.Index(page, "Delivery progress") {
+		t.Fatal("suggested matches should be accessible before delivery progress")
+	}
+	if !strings.Contains(page, `href="#correct-receipt"`) || !strings.Contains(page, `id="correct-receipt"`) {
+		t.Fatal("correction should be reachable from suggested matches")
+	}
 	if strings.Index(page, `value="good"`) >= strings.Index(page, `value="percent"`) {
 		t.Fatalf("exact merchant should rank ahead of another same-amount candidate: %s", page)
 	}

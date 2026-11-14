@@ -65,7 +65,7 @@ type Server struct {
 	handler  http.Handler
 }
 
-//go:embed templates/*.html
+//go:embed templates/*.html static/*
 var templates embed.FS
 
 // AuthRequired reports whether the service can be reached from other devices.
@@ -176,6 +176,15 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	mux := http.NewServeMux()
+	// Public, embedded styles are available on the login page. No CDN or directory
+	// listing: only these two immutable application assets can be requested.
+	for _, name := range []string{"pico.min.css", "app.css"} {
+		mux.HandleFunc("GET /static/"+name, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Cache-Control", "no-cache")
+			http.ServeFileFS(w, r, templates, "static/"+name)
+		})
+	}
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
 	mux.Handle("POST /logout", s.protect(s.logout))

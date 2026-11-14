@@ -1,29 +1,25 @@
 {{define "head"}}<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Receipts</title>
-<style>
-body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
-body.wide { max-width: 72rem; }
-.error { color: #a40000; }
-dt { font-weight: bold; }
-form.inline { display: inline; }
-table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
-th, td { text-align: left; padding: 0.25rem 0.5rem; border-bottom: 1px solid #ddd; }
-.number, .nowrap { white-space: nowrap; }
-.number { text-align: right; }
-.muted { color: #888; }
-.receipt-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-.receipt-detail iframe { width: 100%; height: 70vh; border: 1px solid #ddd; }
-@media (max-width: 650px) { .receipt-detail { grid-template-columns: 1fr; } }
-</style>
+<title>{{if eq . "receipts"}}Receipt queue{{else if eq . "receipt"}}Review receipt{{else if eq . "status"}}Operations{{else if eq . "transactions"}}Bank transactions{{else if eq . "login"}}Sign in{{else}}Receipt service{{end}} · Receipts</title>
+<link rel="stylesheet" href="/static/pico.min.css">
+<link rel="stylesheet" href="/static/app.css">
 </head>
-{{/* An optional argument is the body class, for example "wide" for a table page. */}}
-<body{{with .}} class="{{.}}"{{end}}>
-<h1>Receipts</h1>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="app-header"><div class="header-inner">
+<a class="brand" href="/receipts"><span class="brand-mark" aria-hidden="true">r.</span> Receipts</a>
+{{if ne . "login"}}<nav aria-label="Primary navigation"><a href="/receipts"{{if or (eq . "receipts") (eq . "receipt")}} aria-current="page"{{end}}>Receipt queue</a><a href="/xero/transactions"{{if eq . "transactions"}} aria-current="page"{{end}}>Transactions</a><a href="/"{{if eq . "status"}} aria-current="page"{{end}}>Operations</a></nav>{{end}}
+</div></header>
+<main id="main" class="workspace{{if eq . "login"}} login-workspace{{end}}">
 {{end}}
-{{define "foot"}}</body>
-</html>
-{{end}}
+{{define "foot"}}</main><footer class="app-footer">Receipts <span aria-hidden="true">/</span> Review first. Approve deliberately.</footer></body></html>{{end}}
+{{define "queue-navigation"}}
+<nav class="queue-navigation" aria-label="Review queue navigation">
+<div>{{if .Previous}}<a href="{{.Previous}}" role="button" class="secondary outline">← Previous receipt</a>{{else}}<button type="button" class="secondary outline" disabled>← Previous receipt</button>{{end}}</div>
+<div class="queue-position">{{if .Position}}Receipt {{.Position}} of {{.Total}}{{else}}Not in the current filtered queue{{end}}<small>Navigation does not change review decisions.</small></div>
+<div>{{if .Next}}<a href="{{.Next}}" role="button" class="secondary outline">Next receipt →</a>{{else}}<button type="button" class="secondary outline" disabled>Next receipt →</button>{{end}}</div>
+</nav>{{end}}
+{{define "badge"}}<span class="badge" data-state="{{.}}">{{if eq . "needs_review"}}Needs review{{else if eq . "reconnect_required"}}Reconnect required{{else if eq . "awaiting_approval"}}Awaiting approval{{else}}{{.}}{{end}}</span>{{end}}

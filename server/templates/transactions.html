@@ -1,8 +1,6 @@
-{{template "head" "wide"}}
-<h2>Bank transactions</h2>
-<p><a href="/">Back to status</a></p>
-<p>The latest 500 spend and receive transactions, newest first. Only reconciled, authorised transactions can receive a receipt.</p>
-<table>
+{{template "head" "transactions"}}
+<header class="page-heading"><div><p class="eyebrow">Connected organisation</p><h1>Bank transactions</h1><p>The latest 500 spend and receive transactions, newest first. Only reconciled, authorised transactions can receive a receipt.</p></div><a href="/" role="button" class="secondary outline">Back to status</a></header>
+<section class="panel"><p class="muted">To search and select a transaction, open a receipt in the <a href="/receipts">receipt queue</a>.</p>{{if .Transactions}}<div class="table-wrap" tabindex="0" role="region" aria-label="Bank transactions"><table>
 <thead><tr><th>Date</th><th>Type</th><th>Contact</th><th>Reference</th><th>Bank account</th><th class="number">Total</th><th>Status</th><th>Reconciled</th></tr></thead>
 <tbody>
 {{range .Transactions}}
@@ -12,5 +10,5 @@
 </tr>
 {{end}}
 </tbody>
-</table>
+</table></div>{{else}}<div class="empty-state"><h2>No transactions yet</h2><p>Connect Xero and refresh transactions from the operations page.</p><a href="/">Check connection status →</a></div>{{end}}</section>
 {{template "foot"}}

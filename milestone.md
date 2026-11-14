@@ -312,6 +312,33 @@ Validation: `go test ./...`, `go vet ./...`, and `go test -race ./server ./recei
 - [ ] If automatic approval is enabled, only eligible, unambiguous matches proceed automatically. Deferred by operator choice: automatic approval is unavailable.
 - [x] Completed items show their approval method and confirmed upload result.
 
+## Milestone 7: Functional receipt-review workspace
+
+**Outcome:** A coherent, responsive browser UI makes receipt review and service operations practical without changing approval or delivery safeguards.
+
+**Status:** Implemented with Go server-rendered templates and locally bundled Pico CSS 2.1.1. The light, teal-accented UI needs no JavaScript or frontend build pipeline. See [UI architecture and browser tests](docs/ui.md).
+
+### Work
+
+- Add shared navigation, responsive layouts, labelled controls, status badges, and useful empty/error states.
+- Make the receipt queue searchable and paginated, with combinable review/archive/attention filters and global overview counts.
+- Present the original document and extracted values together, with corrections, explained suggestions, manual search, existing links, delivery progress, and audit history.
+- Organise processing controls, Xero connection actions, and worker health into an operations dashboard.
+- Preserve authentication, cross-origin protection, manual approval, source verification, and target locks.
+- Keep assets self-hosted and exercise real UI actions using isolated synthetic data.
+
+### Done when
+
+- [x] The user can find receipts and retain combined filters across result pages.
+- [x] Receipt detail has Previous/Next controls and approve-and-next actions, retaining queue context across navigation, search and correction. Approving the final receipt returns to the queue; failed approvals never advance.
+- [x] Review, correction, manual approval, and pending/ignored decisions remain available.
+- [x] Receipt progress and unresolved failures are visible without reading logs.
+- [x] Queue, review, transactions, and operations pages fit desktop and mobile viewports; wide tables scroll within their regions.
+- [x] Login, empty states, errors, navigation, and form controls have consistent styling and accessible labels.
+- [x] Go regressions and desktop/mobile browser checks cover the new UI without touching live receipts or providers.
+
+Validation: `go test ./...`, `go vet ./...`, `go test -race ./server`, and the opt-in `TestWorkspaceBrowser` pass. Chromium checks cover 1440px/390px layouts, automated axe rules, search, pagination, correction, manual approval, pause/resume, logout, and original-file retrieval. Automated accessibility checks are not full conformance certification; native PDF viewer rendering and real-provider validation are separate. No new database migration is required beyond milestone 6.
+
 ## Deferred validation: Live WebDAV access
 
 **Blocked by:** Access to the WebDAV service. These checks can run as soon as access is restored; they do not need to wait for milestone 6.
@@ -327,6 +354,8 @@ Do not mark these checks complete based on local-folder tests alone.
 ## Delivery order
 
 Implement milestones 1, 2a, 2b, 3a, 3b, 4a, 4b, and 4c in order. Introduce the long-running server and browser-based Xero connection in milestone 2a. Add bank transaction access in milestone 2b. Extend that server with background processing and receipt pages in milestone 3a, and with manual review decisions in milestone 3b. Implement milestone 3c against a controlled WebDAV server after 3a and 3b; it can proceed alongside 4a and 4b without live WebDAV access and must precede WebDAV cleanup in 4c. Deliver Xero attachment in 4a, Paperless archiving in 4b, and safe intake cleanup and full completion in 4c. Each milestone includes its own durable progress, UI states, failure handling, and restart recovery; do not defer these to 4c or 6. Keep intake files intact through 4a and 4b. Complete one manually approved receipt attachment, Paperless archive, and intake cleanup before adding matching automation. Add milestone 5 to reduce review effort. Use milestone 6 to prepare for unattended operation; basic access protection, secret handling, and safe uploads are required earlier, not deferred to this milestone.
+
+Milestone 7 adds the functional browser workspace after milestone 6. It improves the existing manual-review and operations flows; it does not enable automatic approval or replace the remaining live-integration and restore validation.
 
 ## Validation approach
 
