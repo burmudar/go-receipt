@@ -25,7 +25,9 @@ The source is reread and SHA-256 verified immediately before dispatch. Local
 cleanup rejects symlink paths/ancestors, nonregular files and observed inode
 replacement. WebDAV cleanup confines deletion to a direct file in the configured
 inbox and endpoint, disallows redirects, and requires a successful verified GET.
-Missing sources, mismatches and access failures never authorize deletion.
+A missing file is treated as already cleaned up only when its parent directory is
+accessible (for WebDAV, a 404 is followed by a successful HEAD of the inbox).
+Mismatches and access failures never authorize deletion and remain retryable.
 
 **There is still a gap between verification and removal.** An uncooperative
 writer can replace or modify a local file or WebDAV resource during that gap;
@@ -39,29 +41,27 @@ risk reduction, not an enforced guarantee.
 ## Durable states and recovery
 
 - `pending`: both remote confirmations and approval authorize a cleanup attempt.
-- `failed`: verification, authorization or pre-dispatch persistence failed;
-  retained and retried on a later processing cycle when eligible. Restore access
-  or original bytes to recover verification failures.
-- `deleting`: durable marker written before the destructive call.
-- `uncertain`: any error after dispatch, or restart with a deleting marker.
-  **Never automatically retried**, even if the path is now absent or holds matching
-  bytes. A lost response, permission error or database failure after removal must
-  not authorize a second removal of a reused pathname.
-- `confirmed`: removal returned success and completion was committed in SQLite.
-  Only this state together with both confirmed remote records renders complete,
-  labelled **attached and archived**, never reconciled.
+- `failed`: an access, verification, authorization, or deletion error occurred.
+  The worker retries when eligible. A hash mismatch is reported and is never deleted.
+- `deleting`: durable marker written before deletion or confirming absence.
+  If interrupted, it becomes retryable on restart.
+- `uncertain`: legacy interrupted or unconfirmed deletions are retried under this
+  policy. Every retry rechecks eligibility and verifies any existing file's hash.
+- `confirmed`: removal returned success, or the file was absent with an accessible
+  parent, and completion was committed in SQLite. Absence does not prove how or
+  when the file was removed. Only this state together with both confirmed remote
+  records renders complete, labelled **attached and archived**, never reconciled.
 
-Uncertain work needs manual investigation; there is intentionally no blind retry
-button. Stop the single service before operator database recovery, preserve a
-backup, check both remote references and the source history, and establish the
-actual deletion outcome. Do not reset an uncertain row just because the pathname
-is missing or has the same hash. No automatic reconciliation from absence exists.
-If the outcome cannot be established, leave it uncertain. Recovery actions are
-not automated in this release. Cleanup does not repeat attachment or archival.
+A retry can delete a newly created file at the same path if its contents match the
+original receipt. A replacement can also occur between verification and deletion.
+The operator considers replacement unlikely and accepts these risks in exchange
+for automatic recovery. An inaccessible mount must not be mistaken for an empty
+directory. HTTP servers that conceal inaccessible resources as 404 can also make
+absence ambiguous. Cleanup does not repeat Xero attachment or Paperless archival.
 
 Local unlink success is the filesystem API acknowledgement, not a new fsync-based
 custody protocol; filesystem crash/power-loss durability is not guaranteed beyond
-the host filesystem. SQLite failure after removal leaves an uncertain marker.
+the host filesystem. SQLite failure after removal is reconciled on the next cycle.
 The original preview refers to intake and is unavailable after cleanup; use the
 persisted Xero/Paperless references for the archived original.
 
@@ -83,10 +83,8 @@ changes during cleanup verification are blocked by the attachment lock.
 eligibility during verification and proves no removal is dispatched. Full Go
 tests, vet and race tests for receipt, intake, Paperless and server pass.
 
-The external Nix `william /inbox` permission edit from `rw` to `rwd` was already
-syntax checked but is **not deployed** and was not edited here. Live WebDAV delete
-permissions/behavior, phone filename reuse and deployment readiness remain
-unvalidated. Applying migrations and running this version enables best-effort
-cleanup for eligible configured sources; do not deploy without accepting these
-limits and preserving backups. The user-owned Copyparty research document is
-historical evidence, not an approved custom-service implementation plan.
+A synthetic nested file on the configured live WebDAV inbox was successfully
+deleted after permissions were changed. This does not establish the rules for
+all other paths. The operator has accepted the best-effort cleanup risks described
+above. The user-owned Copyparty research document is historical evidence, not an
+approved custom-service implementation plan.

@@ -3,11 +3,13 @@ package intake
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,8 +28,13 @@ func (LocalSource) Cleanup(ctx context.Context, location, hash string, beforeDel
 	if !filepath.IsAbs(location) || filepath.Clean(location) != location {
 		return fmt.Errorf("invalid local source")
 	}
+	missing := false
 	for p := location; ; p = filepath.Dir(p) {
 		info, err := os.Lstat(p)
+		if errors.Is(err, os.ErrNotExist) && p == location {
+			missing = true
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -37,6 +44,16 @@ func (LocalSource) Cleanup(ctx context.Context, location, hash string, beforeDel
 		if p == filepath.Dir(p) {
 			break
 		}
+	}
+	if missing {
+		// A missing mount or an inaccessible parent is not proof of absence.
+		if _, err := os.ReadDir(filepath.Dir(location)); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return beforeDelete()
 	}
 	f, err := os.Open(location)
 	if err != nil {
@@ -84,8 +101,8 @@ func (d *WebDAVInput) Cleanup(ctx context.Context, location, hash string, before
 		return fmt.Errorf("source outside intake")
 	}
 	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	request := func(method string) (*http.Response, error) {
-		u, e := url.Parse(location)
+	request := func(method, target string) (*http.Response, error) {
+		u, e := url.Parse(target)
 		if e != nil {
 			return nil, e
 		}
@@ -96,14 +113,36 @@ func (d *WebDAVInput) Cleanup(ctx context.Context, location, hash string, before
 		req.SetBasicAuth(d.user, d.password)
 		return client.Do(req)
 	}
-	resp, err := request(http.MethodGet)
+	resp, err := request(http.MethodGet, location)
 	if err != nil {
 		return fmt.Errorf("verify WebDAV source failed")
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		resp.Body.Close()
+		// Confirm the configured inbox is reachable before treating 404 as absence.
+		parent, err := url.Parse(location)
+		if err != nil {
+			return fmt.Errorf("invalid WebDAV source")
+		}
+		parent.Path = path.Dir(parent.Path) + "/"
+		parent.RawPath = ""
+		check, err := request(http.MethodHead, parent.String())
+		if err != nil {
+			return fmt.Errorf("verify WebDAV inbox failed")
+		}
+		check.Body.Close()
+		if check.StatusCode < 200 || check.StatusCode >= 300 {
+			return fmt.Errorf("verify WebDAV inbox returned HTTP %d", check.StatusCode)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return beforeDelete()
 	}
 	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 10_000_001))
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || readErr != nil || len(data) > 10_000_000 {
-		return fmt.Errorf("verify WebDAV source failed")
+		return fmt.Errorf("verify WebDAV source failed (HTTP %d)", resp.StatusCode)
 	}
 	if err = verifyCleanup(data, hash); err != nil {
 		return err
@@ -111,13 +150,13 @@ func (d *WebDAVInput) Cleanup(ctx context.Context, location, hash string, before
 	if err = beforeDelete(); err != nil {
 		return err
 	}
-	resp, err = request(http.MethodDelete)
+	resp, err = request(http.MethodDelete, location)
 	if err != nil {
 		return fmt.Errorf("WebDAV deletion outcome uncertain")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("WebDAV deletion not confirmed")
+		return fmt.Errorf("WebDAV deletion returned HTTP %d", resp.StatusCode)
 	}
 	return nil
 }
