@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"iter"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/burmudar/go-receipt/db"
+	"github.com/burmudar/go-receipt/extract"
+	"github.com/burmudar/go-receipt/intake"
 	"github.com/burmudar/go-receipt/receipt"
 	"github.com/spf13/cobra"
 )
@@ -115,7 +118,7 @@ func secret(env, filename string) (string, error) {
 
 func (c config) files(ctx context.Context) (iter.Seq2[receipt.File, error], error) {
 	if c.folder != "" {
-		return localFiles(ctx, c.folder)
+		return intake.LocalFiles(ctx, c.folder)
 	}
 
 	if c.endpoint == "" || c.user == "" {
@@ -127,7 +130,11 @@ func (c config) files(ctx context.Context) (iter.Seq2[receipt.File, error], erro
 		return nil, err
 	}
 
-	return webDAVFiles(ctx, c.endpoint, c.user, password, c.inbox)
+	input, err := intake.NewWebDAVInput(c.endpoint, c.user, password, c.inbox)
+	if err != nil {
+		return nil, err
+	}
+	return input.Files(ctx)
 }
 
 type summary struct {
@@ -188,7 +195,7 @@ func (c config) run(cmd *cobra.Command, retry bool) error {
 		if err != nil {
 			failures = append(failures, err)
 		} else {
-			scanner, err := NewReceiptScanner(token, c.model)
+			scanner, err := extract.NewScanner(token, c.model)
 			if err == nil {
 				source := &sourceReader{config: c}
 				extractor := timedScanner{
@@ -208,6 +215,29 @@ func (c config) run(cmd *cobra.Command, retry bool) error {
 	}
 
 	return errors.Join(failures...)
+}
+
+// sourceReader loads CLI credentials lazily, so local retries do not require WebDAV access.
+type sourceReader struct {
+	config config
+}
+
+func (r *sourceReader) Read(ctx context.Context, location string) ([]byte, error) {
+	if filepath.IsAbs(location) {
+		return (intake.LocalSource{}).Read(ctx, location)
+	}
+	if r.config.endpoint == "" || r.config.user == "" {
+		return nil, fmt.Errorf("%w: set --webdav-url and --webdav-user", receipt.ErrSourceUnconfigured)
+	}
+	password, err := secret("WEBDAV_PASSWORD", r.config.passwordFile)
+	if err != nil {
+		return nil, fmt.Errorf("%w: WebDAV credentials", receipt.ErrSourceUnconfigured)
+	}
+	input, err := intake.NewWebDAVInput(r.config.endpoint, r.config.user, password, r.config.inbox)
+	if err != nil {
+		return nil, err
+	}
+	return input.Read(ctx, location)
 }
 
 type timedScanner struct {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -27,8 +28,22 @@ func periodic(ctx context.Context, interval time.Duration, work func(context.Con
 func (s *Server) processPeriodically(ctx context.Context) {
 	periodic(ctx, s.cfg.ReceiptInterval, func(ctx context.Context) {
 		store := receipt.NewStore(s.cfg.DB)
+		hadError := false
+		defer func() {
+			if ctx.Err() != nil {
+				return
+			}
+			s.workerMu.Lock()
+			defer s.workerMu.Unlock()
+			if hadError {
+				s.receiptWorkerError = "Receipt import or processing encountered errors. Check the service logs and receipt list."
+			} else {
+				s.receiptWorkerError = ""
+			}
+		}()
 		files, err := s.cfg.Discover(ctx)
 		if err != nil {
+			hadError = true
 			if ctx.Err() == nil {
 				s.cfg.Logger.Warn("discover receipts", "error", err)
 			}
@@ -41,6 +56,7 @@ func (s *Server) processPeriodically(ctx context.Context) {
 					_, _, err = store.Import(ctx, file)
 				}
 				if err != nil {
+					hadError = true
 					s.cfg.Logger.Warn("import receipt", "source", file.Source, "error", err)
 				}
 			}
@@ -49,6 +65,7 @@ func (s *Server) processPeriodically(ctx context.Context) {
 			return
 		}
 		if _, err := store.Process(ctx, s.cfg.Source, s.cfg.Scanner, false); err != nil && ctx.Err() == nil {
+			hadError = true
 			s.cfg.Logger.Warn("process receipts", "error", err)
 		}
 	})
@@ -157,7 +174,11 @@ func (s *Server) receiptDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := s.cfg.Source.Read(r.Context(), record.Source)
 	if err != nil {
-		http.Error(w, "Receipt source unavailable", http.StatusNotFound)
+		if errors.Is(err, receipt.ErrSourceUnconfigured) {
+			http.Error(w, "Receipt source is not configured", http.StatusServiceUnavailable)
+		} else {
+			http.Error(w, "Receipt source unavailable", http.StatusNotFound)
+		}
 		return
 	}
 	if (receipt.File{Data: data}).SHA256() != record.SHA256 {

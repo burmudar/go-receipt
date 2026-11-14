@@ -119,7 +119,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** A running service imports receipts, extracts their data, and refreshes bank transactions without CLI commands. The UI shows each receipt with its original document.
 
-**Status:** Implemented for local input. Tests use real SQLite, a controlled scanner, and a controlled Xero server. Live OpenAI and background Xero validation remain unverified. WebDAV background import and preview are not configured; the scan CLI still supports WebDAV.
+**Status:** Implemented for local input. Tests use real SQLite, a controlled scanner, and a controlled Xero server. Live OpenAI and background Xero validation remain unverified. Milestone 3c adds WebDAV background import and preview.
 
 ### Work
 
@@ -162,7 +162,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** The running service can import WebDAV receipts and display their retained originals using the same processing and review workflow as local receipts.
 
-**Status:** Not started. The scan CLI supports WebDAV, but the service's background worker and document preview currently support local sources only. Implement and test against a controlled WebDAV server without waiting for live access; live deployment readiness still requires the deferred validation below.
+**Status:** Implemented and tested with real SQLite and a controlled WebDAV server. `go test ./...`, `go vet ./...`, and `go test -race ./intake ./cmd/scancli ./server` passed. Live WebDAV access remains unverified; deployment readiness still requires the deferred validation below. Pending receipts with an unconfigured or unavailable WebDAV source are retried automatically; changed source content fails verification and requires an explicit retry after restoration.
 
 ### Work
 
@@ -174,11 +174,11 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 ### Done when
 
-- [ ] New receipts on a controlled WebDAV server are imported and extracted by the running service without the scan CLI.
-- [ ] WebDAV originals can be inspected beside their extracted data, subject to authentication and hash verification; missing or changed originals are not presented as the processed receipt.
-- [ ] Identical local and WebDAV content does not create a duplicate record or repeat a successful extraction, including across a restart.
-- [ ] Unconfigured, unavailable, or changed sources do not silently corrupt receipt state; processing can resume after access is restored.
-- [ ] WebDAV credentials are not sent to another endpoint or exposed in logs or pages. Controlled tests cover the service workflow and access rules.
+- [x] New receipts on a controlled WebDAV server are imported and extracted by the running service without the scan CLI.
+- [x] WebDAV originals can be inspected beside their extracted data, subject to authentication and hash verification; missing or changed originals are not presented as the processed receipt.
+- [x] Identical local and WebDAV content does not create a duplicate record or repeat a successful extraction, including across a restart.
+- [x] Unconfigured, unavailable, or changed sources do not silently corrupt receipt state; processing can resume after access is restored.
+- [x] WebDAV credentials are not sent to another endpoint or exposed in logs or pages. Controlled tests cover the service workflow and access rules.
 - [ ] Live WebDAV deployment is not declared ready until the deferred validation checks pass.
 
 ## Milestone 4: Xero attachment, Paperless archive, and intake cleanup

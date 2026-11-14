@@ -1,10 +1,16 @@
 package remotefs
 
 import (
+	"context"
 	"crypto/sha256"
+	"fmt"
 	"iter"
+	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/studio-b12/gowebdav"
@@ -37,8 +43,26 @@ func (r *File) Ext() string {
 }
 
 func NewDir(user, pass, endpoint string) (*Dir, error) {
+	return NewDirContext(context.Background(), user, pass, endpoint)
+}
+
+// NewDirContext confines every request, including authentication, to the configured
+// endpoint. Redirects are disabled, and cancellation applies to every operation.
+func NewDirContext(ctx context.Context, user, pass, endpoint string) (*Dir, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") ||
+		u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return nil, fmt.Errorf("invalid WebDAV endpoint")
+	}
+	base := strings.TrimSuffix(u.Path, "/")
+	if strings.Contains(base, "\\") || (base != "" && path.Clean(base) != base) {
+		return nil, fmt.Errorf("invalid WebDAV endpoint path")
+	}
 	client := gowebdav.NewClient(endpoint, user, pass)
 	client.SetTimeout(30 * time.Second)
+	client.SetHeader(gowebdav.XInhibitRedirect, "1")
+	client.SetTransport(endpointTransport{base: u, path: base, next: http.DefaultTransport})
+	client.SetInterceptor(func(_ string, req *http.Request) { *req = *req.WithContext(ctx) })
 
 	if err := client.Connect(); err != nil {
 		return nil, err
@@ -47,6 +71,22 @@ func NewDir(user, pass, endpoint string) (*Dir, error) {
 	return &Dir{
 		client: client,
 	}, nil
+}
+
+type endpointTransport struct {
+	base *url.URL
+	path string
+	next http.RoundTripper
+}
+
+func (t endpointTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	p := r.URL.Path
+	if r.URL.Scheme != t.base.Scheme || r.URL.Host != t.base.Host || r.URL.User != nil ||
+		strings.Contains(p, "\\") || (p != "/" && path.Clean(p) != strings.TrimSuffix(p, "/")) ||
+		(t.path != "" && p != t.path && !strings.HasPrefix(p, t.path+"/")) {
+		return nil, fmt.Errorf("WebDAV request outside configured endpoint")
+	}
+	return t.next.RoundTrip(r)
 }
 
 func (r *Dir) List(path string) iter.Seq2[os.FileInfo, error] {

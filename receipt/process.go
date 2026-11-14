@@ -6,6 +6,12 @@ import (
 	"fmt"
 )
 
+// ErrSourceUnconfigured indicates that the source for a receipt is not configured.
+var ErrSourceUnconfigured = errors.New("receipt source is not configured")
+
+// ErrSourceUnavailable indicates a temporary source failure that can be retried.
+var ErrSourceUnavailable = errors.New("receipt source is temporarily unavailable")
+
 // Source reads the original bytes from a persisted intake location.
 type Source interface {
 	Read(context.Context, string) ([]byte, error)
@@ -23,8 +29,9 @@ type Progress struct {
 
 // Process extracts receipts by reading and verifying their retained source files.
 // Normal runs process pending records. Explicit retries also include failures.
-// An interrupted pending record remains eligible for the next run. Run only one
-// processor per database until worker coordination is introduced.
+// An interrupted pending record remains eligible for the next run. Records with
+// unconfigured or temporarily unavailable sources retain their existing state.
+// Run only one processor per database until worker coordination is introduced.
 func (s *Store) Process(ctx context.Context, source Source, scanner Scanner, retryFailed bool) (Progress, error) {
 	var progress Progress
 	records, err := s.List(ctx)
@@ -53,6 +60,12 @@ func (s *Store) Process(ctx context.Context, source Source, scanner Scanner, ret
 			return progress, ctx.Err()
 		}
 
+		if errors.Is(scanErr, ErrSourceUnconfigured) || errors.Is(scanErr, ErrSourceUnavailable) {
+			progress.Skipped++
+			failures = append(failures, fmt.Errorf("receipt %s (%s): %w", r.SHA256, r.Name, scanErr))
+			continue
+		}
+
 		if err := s.finish(ctx, r.SHA256, analysis, scanErr); err != nil {
 			return progress, fmt.Errorf("save receipt %s: %w", r.SHA256, err)
 		}
@@ -71,7 +84,7 @@ func (s *Store) Process(ctx context.Context, source Source, scanner Scanner, ret
 func extract(ctx context.Context, source Source, scanner Scanner, record Record) (Analysis, error) {
 	data, err := source.Read(ctx, record.Source)
 	if err != nil {
-		return Analysis{}, fmt.Errorf("read source %s: %w", record.Source, err)
+		return Analysis{}, fmt.Errorf("read source: %w", err)
 	}
 
 	file := File{

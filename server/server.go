@@ -50,12 +50,14 @@ type Config struct {
 }
 
 type Server struct {
-	cfg      Config
-	auth     *auth
-	xero     *xero.Manager
-	setupErr error
-	pages    *template.Template
-	handler  http.Handler
+	cfg                Config
+	auth               *auth
+	xero               *xero.Manager
+	setupErr           error
+	pages              *template.Template
+	handler            http.Handler
+	workerMu           sync.RWMutex
+	receiptWorkerError string
 }
 
 //go:embed templates/*.html

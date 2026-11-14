@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/burmudar/go-receipt/cmd/scancli"
 	"github.com/burmudar/go-receipt/db"
+	"github.com/burmudar/go-receipt/intake"
 	"github.com/burmudar/go-receipt/receipt"
 	"github.com/pressly/goose/v3"
 )
@@ -56,7 +56,7 @@ func TestBackgroundReceiptsAndPages(t *testing.T) {
 	}
 	scanner := &testScanner{}
 	public, _ := url.Parse("https://receipts.home.arpa")
-	cfg := Config{DB: conn, Listen: "127.0.0.1:0", PublicURL: public, Password: "password", RequestTimeout: time.Second, XeroTimeout: time.Second, CheckInterval: time.Hour, ReceiptInterval: 20 * time.Millisecond, Source: scancli.LocalSource{}, Scanner: scanner, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Discover: func(ctx context.Context) (iter.Seq2[receipt.File, error], error) { return scancli.LocalFiles(ctx, dir) }}
+	cfg := Config{DB: conn, Listen: "127.0.0.1:0", PublicURL: public, Password: "password", RequestTimeout: time.Second, XeroTimeout: time.Second, CheckInterval: time.Hour, ReceiptInterval: 20 * time.Millisecond, Source: intake.LocalSource{}, Scanner: scanner, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Discover: func(ctx context.Context) (iter.Seq2[receipt.File, error], error) { return intake.LocalFiles(ctx, dir) }}
 	start := func() (*Server, context.CancelFunc, <-chan error) {
 		s, err := New(cfg)
 		if err != nil {
