@@ -140,7 +140,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** The user can correct receipt data and approve, reject, or ignore transaction links. Each decision has an audit history.
 
-**Status:** Implemented on top of milestone 3a with real SQLite and a controlled Xero transaction set. Ignored receipts are retained in the intake; each ignore decision records that retention choice. Attachment, archive, and cleanup are not implemented, so completion after attachment remains to be validated in milestone 4.
+**Status:** Implemented on top of milestone 3a with real SQLite and a controlled Xero transaction set. Ignored receipts are retained in the intake; each ignore decision records that retention choice. Attachment, archive, and cleanup are not implemented, so completion after attachment remains to be validated in milestones 4a–4c.
 
 ### Work
 
@@ -148,7 +148,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - Allow transaction search and manual selection within the connected organisation.
 - Persist approval, rejection, and ignore decisions with timestamps and an audit history.
 - Separate needs-review, unmatched, approved, rejected, completed, ignored, and failed items in the UI. Approved must not mean uploaded. Show Xero attachment, Paperless archive, and intake cleanup progress separately.
-- Decide whether ignored receipts stay in the intake, are archived in Paperless, or are removed. Record that decision before milestone 4 cleanup.
+- Decide whether ignored receipts stay in the intake, are archived in Paperless, or are removed. Record that decision before milestone 4c cleanup.
 - Keep the review actions behind the same access rules as the Xero connection pages.
 
 ### Done when
@@ -156,7 +156,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - [x] The user can correct the data of a receipt and approve a transaction link (controlled SQLite transaction set).
 - [x] An unmatched receipt can remain pending or be ignored with a recorded decision. The UI shows that a pending receipt can wait for reconciliation in Xero.
 - [x] A restart preserves decisions.
-- [ ] Approved receipts remain visibly pending until attachment upload succeeds. Attached receipts remain incomplete until Paperless archiving and intake cleanup finish (approved pending is implemented; subsequent operations are milestone 4).
+- [ ] Approved receipts remain visibly pending until attachment upload succeeds. Attached receipts remain incomplete until Paperless archiving and intake cleanup finish (approved pending is implemented; subsequent operations are milestones 4a–4c).
 
 ## Milestone 3c: WebDAV service input and preview
 
@@ -170,7 +170,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - Discover and import WebDAV receipts in the background, deduplicating by content hash across local and WebDAV inputs. Preserve source references and verify retained bytes before extraction and preview.
 - Read and preview WebDAV originals on the authenticated receipt pages, restricting requests and credentials to the configured WebDAV endpoint. Keep the same document safety and access protections as local previews.
 - Handle records from both local and WebDAV sources safely. Do not mark a pending receipt as an extraction failure merely because its source is not configured for this service; report the configuration problem and leave it available for processing when the source is configured.
-- Surface discovery and source failures, resume safely after recovery or restart, and retain intake files. Do not add WebDAV cleanup before milestone 4's attachment and archive safeguards.
+- Surface discovery and source failures, resume safely after recovery or restart, and retain intake files. Do not add WebDAV cleanup before milestone 4c, after the attachment and archive safeguards in milestones 4a and 4b.
 
 ### Done when
 
@@ -181,36 +181,78 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - [x] WebDAV credentials are not sent to another endpoint or exposed in logs or pages. Controlled tests cover the service workflow and access rules.
 - [ ] Live WebDAV deployment is not declared ready until the deferred validation checks pass.
 
-## Milestone 4: Xero attachment, Paperless archive, and intake cleanup
+## Milestone 4a: Xero attachment
 
-**Outcome:** An approved receipt is attached to the selected Xero transaction, archived in Paperless, and safely removed from the intake. Each step has a durable completion record.
+**Outcome:** A manually approved receipt is safely attached to the selected Xero transaction, with a durable attachment confirmation. Intake files remain untouched; Paperless archiving and cleanup are not part of this milestone.
 
 ### Work
 
 - Read the original from the intake and verify its hash before uploading to the approved Xero target.
-- Immediately before upload, fetch the approved bank transaction from Xero again. If it is deleted, voided, or no longer matches the approved amount, currency, or date, stop the upload and return the receipt to review.
+- Immediately before upload, fetch the approved bank transaction from Xero again. If it is no longer an eligible reconciled, authorised `SPEND` or `RECEIVE` transaction, or no longer matches the approved amount, currency, or date, stop the upload and return the receipt to review.
 - Record the target identifier, attachment identifier where available, upload result, and completion time.
-- Make upload retries safe. Send a stable `Idempotency-Key` for each receipt and target. Use a unique attachment file name for each receipt so that an upload cannot replace another attachment. Check the attachment list when a timeout leaves the result uncertain.
+- Make upload retries safe. Send a stable `Idempotency-Key` for each receipt and target. Use a unique attachment file name for each receipt so that an upload cannot replace another attachment. Check the attachment list when a timeout leaves the result uncertain. Resume only incomplete work after an error or restart.
 - Confirm the attachment size limit for bank transactions. Reject a receipt that exceeds it before upload.
-- After confirmed Xero attachment, upload the original to Paperless with receipt tags, corrected metadata, and useful transaction references.
-- Persist the Paperless task reference. Wait for successful consumption and save the document reference; upload acceptance alone is not archive confirmation.
-- Handle uncertain Paperless uploads without blindly submitting another copy. Before a retry, search Paperless for the receipt checksum. Confirm whether the Paperless duplicate check rejects a second copy, and do not depend on it until confirmed. Resume only incomplete steps after an error or restart.
-- Remove the intake file only after confirmed Xero attachment and Paperless archiving. Verify that the file still matches the processed hash and prevent deletion of a replacement file. Record cleanup progress separately.
-- Show pending uploads, pending archives, pending cleanup, failures, and confirmed completion separately.
+- Show pending uploads, upload failures, and confirmed attachments separately from approval. Keep archive and cleanup progress separate and do not mark an attached receipt complete.
 - Provide a link to the Xero record where supported.
 - Prevent changes to an approved target from silently causing an additional upload. Require an explicit follow-up decision.
 
 ### Done when
 
+- [ ] One receipt goes from local folder import through manual approval to a confirmed attachment visible on the intended Xero record.
+- [ ] Missing or changed originals and oversized receipts are rejected before upload.
+- [ ] A retry or restart, including after an uncertain upload response, does not create a duplicate attachment or overwrite another receipt's attachment.
+- [ ] A target that is deleted, voided, otherwise ineligible, or changed after approval is not uploaded to. The receipt returns to review with the reason.
+- [ ] Changing an approved target cannot silently trigger an additional upload.
+- [ ] The UI distinguishes approval, pending upload, upload failure, and confirmed attachment. Attached receipts remain incomplete and are not labelled reconciled.
+- [ ] Intake files remain intact. No Paperless upload or intake cleanup is performed.
+
+## Milestone 4b: Paperless archive
+
+**Outcome:** A receipt with a confirmed Xero attachment is archived in Paperless with its final metadata and a durable document reference. Intake files remain untouched.
+
+**Depends on:** Milestone 4a's confirmed attachment records. Archive failures and retries must not repeat a confirmed Xero upload.
+
+### Work
+
+- After confirmed Xero attachment, read and verify the retained original and upload it to Paperless with receipt tags, corrected metadata, and useful transaction references.
+- Persist the Paperless task reference. Wait for successful consumption and save the document reference; upload acceptance alone is not archive confirmation.
+- Handle uncertain Paperless uploads without blindly submitting another copy. Before a retry, search Paperless for the receipt checksum. Confirm whether the Paperless duplicate check rejects a second copy, and do not depend on it until confirmed.
+- Resume only incomplete archive work after an error or restart. Preserve the confirmed Xero attachment independently.
+- Show pending archives, archive failures, and confirmed archives separately from Xero attachment and intake cleanup. Do not mark an archived receipt complete while cleanup is pending.
+- Retain intake files regardless of archive success or failure; deletion belongs to milestone 4c.
+
+### Done when
+
+- [ ] Paperless contains the original receipt with final tags, corrected metadata, and transaction references after confirmed Xero attachment.
+- [ ] The saved task and document references distinguish upload acceptance from successful consumption.
+- [ ] A retry or restart, including after an uncertain upload response, does not create a duplicate archive document or repeat the confirmed Xero upload.
+- [ ] A failed Paperless archive is visible in the UI and leaves the intake file intact. Processing can resume after recovery.
+- [ ] A successful archive is visible in the UI, with cleanup still pending and the intake file still intact.
+
+## Milestone 4c: Safe intake cleanup and completion
+
+**Outcome:** An attached and archived receipt is safely removed from the intake and marked complete. Attachment, archive, and cleanup each have a durable completion record.
+
+**Depends on:** Durable confirmation of both the Xero attachment from milestone 4a and Paperless consumption from milestone 4b.
+
+### Work
+
+- Remove the intake file only after confirmed Xero attachment and Paperless archiving. Verify that the file still matches the processed hash and prevent deletion of a replacement file, including one replaced between verification and deletion.
+- Apply the cleanup safeguards to local and WebDAV input. Use controlled WebDAV tests while live access remains unavailable; retain files if safe deletion cannot be established.
+- Record cleanup progress separately. Recover safely from failures or a restart around deletion without repeating confirmed attachment or archive operations.
+- Keep unmatched, pending, and ignored receipts in the intake, respecting the recorded retain-in-intake decision for ignored receipts.
+- Show pending cleanup, cleanup failures, and confirmed completion alongside the separate attachment and archive results. Mark a receipt complete only after all three steps finish.
+- Label completed items as attached and archived, not reconciled.
+
+### Done when
+
 - [ ] One receipt completes the full path from local folder import through manual approval, confirmed Xero attachment, confirmed Paperless archive, and intake cleanup.
-- [ ] The attachment is visible on the intended Xero record.
-- [ ] A retry or restart does not create a duplicate attachment or archive document.
-- [ ] A target that is deleted, voided, or changed after approval is not uploaded to. The receipt returns to review with the reason.
-- [ ] A failed Paperless archive leaves the intake file intact and does not repeat the confirmed Xero upload.
-- [ ] Paperless contains the original receipt with final tags and metadata before intake cleanup.
-- [ ] Cleanup cannot remove an unarchived receipt or a replacement file. Unmatched and pending receipts remain in the intake.
-- [ ] The UI shows what was approved, what was uploaded, and what still needs attention.
-- [ ] The UI labels completed items as attached and archived. It does not label them as reconciled.
+- [ ] Cleanup cannot remove an unarchived receipt or a replacement file, including a file replaced between verification and deletion.
+- [ ] Unmatched, pending, and ignored receipts remain in the intake.
+- [ ] A cleanup failure is visible and can be retried. A restart around deletion recovers without deleting a replacement file or repeating confirmed remote operations.
+- [ ] Controlled WebDAV tests cover the same cleanup safeguards; live deployment readiness remains subject to deferred validation.
+- [ ] The UI shows what was approved, attached, archived, and cleaned up, with unresolved failures kept visible.
+- [ ] Only receipts with all three steps finished are marked complete. The UI labels them as attached and archived, not reconciled.
 
 **This is the first usable end-to-end release.**
 
@@ -240,7 +282,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 ### Work
 
 - Add bounded retries and backoff. Extend request timeouts and graceful shutdown across all background jobs.
-- Extend the restart recovery from milestone 4 to all background jobs. Do not repeat confirmed side effects.
+- Extend the restart recovery from milestones 4a–4c to all background jobs. Do not repeat confirmed side effects.
 - Show worker health, last successful import, Xero connection status, and unresolved failures.
 - Document deployment, configuration, backups, and restore procedures for SQLite, the intake files, and the Paperless archive.
 - Define and validate a conservative automatic-approval policy using reviewed receipts before enabling it.
@@ -269,7 +311,7 @@ Do not mark these checks complete based on local-folder tests alone.
 
 ## Delivery order
 
-Implement milestones 1, 2a, 2b, 3a, 3b, and 4 in order. Introduce the long-running server and browser-based Xero connection in milestone 2a. Add bank transaction access in milestone 2b. Extend that server with background processing and receipt pages in milestone 3a, and with manual review decisions in milestone 3b. Implement milestone 3c against a controlled WebDAV server after 3a and 3b; it can proceed alongside milestone 4 without live WebDAV access. Complete one manually approved receipt attachment, Paperless archive, and intake cleanup before adding matching automation. Add milestone 5 to reduce review effort. Use milestone 6 to prepare for unattended operation; basic access protection, secret handling, and safe uploads are required earlier, not deferred to this milestone.
+Implement milestones 1, 2a, 2b, 3a, 3b, 4a, 4b, and 4c in order. Introduce the long-running server and browser-based Xero connection in milestone 2a. Add bank transaction access in milestone 2b. Extend that server with background processing and receipt pages in milestone 3a, and with manual review decisions in milestone 3b. Implement milestone 3c against a controlled WebDAV server after 3a and 3b; it can proceed alongside 4a and 4b without live WebDAV access and must precede WebDAV cleanup in 4c. Deliver Xero attachment in 4a, Paperless archiving in 4b, and safe intake cleanup and full completion in 4c. Each milestone includes its own durable progress, UI states, failure handling, and restart recovery; do not defer these to 4c or 6. Keep intake files intact through 4a and 4b. Complete one manually approved receipt attachment, Paperless archive, and intake cleanup before adding matching automation. Add milestone 5 to reduce review effort. Use milestone 6 to prepare for unattended operation; basic access protection, secret handling, and safe uploads are required earlier, not deferred to this milestone.
 
 ## Validation approach
 

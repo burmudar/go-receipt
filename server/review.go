@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,6 +18,33 @@ type receiptItem struct {
 	State     string
 	Effective *receipt.Analysis
 }
+
+var titleDatePattern = regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}`)
+
+// TitleDate is a display hint only; it never replaces extracted or corrected data.
+// Do not guess between distinct dates or accept a date embedded in a longer number.
+func (item receiptItem) TitleDate() string {
+	name := item.Name
+	result := ""
+	for _, match := range titleDatePattern.FindAllStringIndex(name, -1) {
+		start, end := match[0], match[1]
+		if start > 0 && name[start-1] >= '0' && name[start-1] <= '9' ||
+			end < len(name) && name[end] >= '0' && name[end] <= '9' {
+			continue
+		}
+		candidate := name[start:end]
+		date, err := time.Parse(time.DateOnly, candidate)
+		if err != nil || date.Year() < 1 {
+			continue
+		}
+		if result != "" && result != candidate {
+			return ""
+		}
+		result = candidate
+	}
+	return result
+}
+
 type receiptDetailPage struct {
 	Item         receiptItem
 	History      []receipt.ReviewEvent

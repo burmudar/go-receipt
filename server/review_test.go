@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,70 @@ import (
 	"github.com/burmudar/go-receipt/receipt"
 	"github.com/pressly/goose/v3"
 )
+
+func TestReceiptTitleDate(t *testing.T) {
+	for _, tc := range []struct{ name, want string }{
+		{"2026-04-18.BUTTANUT NESCAF GOLD ESPRESSO.pdf", "2026-04-18"},
+		{"Shop_2026-04-18_receipt.pdf", "2026-04-18"},
+		{"receipt.pdf", ""},
+		{"18-04-2026.pdf", ""},
+		{"2026-02-30.pdf", ""},
+		{"2026-02-29.pdf", ""},
+		{"2024-02-29.pdf", "2024-02-29"},
+		{"0000-01-01.pdf", ""},
+		{"12026-04-18.pdf", ""},
+		{"2026-04-180.pdf", ""},
+		{"2026-04-18_2026-04-19.pdf", ""},
+		{"2026-04-18_2026-04-18.pdf", "2026-04-18"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			item := makeReceiptItem(receipt.Record{Name: tc.name}, receipt.Review{})
+			if got := item.TitleDate(); got != tc.want {
+				t.Errorf("TitleDate() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReceiptDetailDateSources(t *testing.T) {
+	pages, err := template.ParseFS(templates, "templates/*.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := &receipt.Analysis{Merchant: "Shop", Total: "12.34", Currency: "USD", Date: time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)}
+	corrected := &receipt.Analysis{Merchant: "Shop", Total: "12.34", Currency: "USD", Date: time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC)}
+	for _, tc := range []struct {
+		name, filename, status, titleDate, receiptDate string
+		analysis, correction                           *receipt.Analysis
+	}{
+		{"extracted", "2026-04-18.Shop.pdf", receipt.Extracted, "2026-04-18", "2026-04-17", original, nil},
+		{"corrected", "2026-04-18.Shop.pdf", receipt.Extracted, "2026-04-18", "2026-04-16", original, corrected},
+		{"failed", "2026-04-18.Shop.pdf", receipt.Failed, "2026-04-18", "", nil, nil},
+		{"pending", "2026-04-18.Shop.pdf", receipt.Pending, "2026-04-18", "", nil, nil},
+		{"no title date", "Shop.pdf", receipt.Extracted, "Not available", "2026-04-17", original, nil},
+		{"invalid title date", "2026-02-30.Shop.pdf", receipt.Failed, "Not available", "", nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			item := makeReceiptItem(receipt.Record{Name: tc.filename, Status: tc.status, Analysis: tc.analysis}, receipt.Review{Corrected: tc.correction})
+			var body strings.Builder
+			if err := pages.ExecuteTemplate(&body, "receipt.html", receiptDetailPage{Item: item}); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(body.String(), "<dt>Filename/title date</dt><dd>"+tc.titleDate+"</dd>") {
+				t.Errorf("missing filename/title date %q", tc.titleDate)
+			}
+			if tc.receiptDate != "" && !strings.Contains(body.String(), "<dt>Receipt date</dt><dd>"+tc.receiptDate+"</dd>") {
+				t.Errorf("missing independent receipt date %q", tc.receiptDate)
+			}
+			if tc.analysis == nil && strings.Contains(body.String(), "<dt>Receipt date</dt>") {
+				t.Error("filename date must not stand in for missing extraction")
+			}
+			if tc.analysis != nil && !strings.Contains(body.String(), "Original extraction</summary><p>Shop · 12.34 USD · 2026-04-17") {
+				t.Error("original extracted date must be retained")
+			}
+		})
+	}
+}
 
 func TestManualReviewWorkflow(t *testing.T) {
 	ctx := context.Background()
