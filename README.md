@@ -1,6 +1,6 @@
 # go-receipt
 
-Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command imports local and WebDAV receipts in the background, provides receipt pages, and connects Xero through the browser. Manual review decisions are available in the receipt pages. Approved receipts are uploaded to Xero with durable confirmation and retry recovery. Confirmed Xero attachments can be archived in Paperless with durable task and document tracking. Intake cleanup remains planned in [milestone.md](milestone.md). See [Paperless setup and recovery](docs/paperless-api.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
+Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command imports local and WebDAV receipts in the background, provides receipt pages, and connects Xero through the browser. Manual review decisions are available in the receipt pages. Approved receipts are uploaded to Xero with durable confirmation and retry recovery. Confirmed Xero attachments can be archived in Paperless with durable task and document tracking. Intake cleanup now uses operator-approved best-effort hash verification and durable completion, with a residual replacement race; see [cleanup safety and recovery](docs/intake-cleanup.md) before deployment. See [Paperless setup and recovery](docs/paperless-api.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
 
 ## Setup
 
@@ -54,7 +54,7 @@ Retries read the saved source locations and verify each file against its recorde
 
 - A SHA-256 content hash identifies each receipt across input sources. Importing identical bytes does not create another record or reset an existing result.
 - SQLite stores the first source location, not the original bytes. Keep intake files at their original paths and do not replace their contents during processing.
-- There is no separate staging directory. This version can archive attached receipts in Paperless, but never deletes intake files.
+- There is no separate staging directory. After durable Xero attachment and Paperless consumption confirmation, the service deletes hash-verified intake files on a best-effort basis. Cleanup retries errors, and treats an absent file with an accessible parent as complete. Replacement races remain possible; see the cleanup safety document.
 - A changed source, or a missing local file, is recorded as a failure. An unconfigured or temporarily unavailable WebDAV source leaves a pending receipt pending. Restore the original before retrying; no extraction request is sent until the hash matches.
 - `pending` means the receipt record is saved but has no completed extraction.
 - `extracted` means the extraction passed field validation. It does not mean approved, matched, attached, or reconciled.

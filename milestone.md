@@ -234,16 +234,20 @@ Start with manual approval for every attachment. Add automatic approval only aft
 - [x] A successful archive is visible in the UI, with cleanup still pending and the intake file still intact (controlled API).
 - [x] Validate consumption, final metadata and duplicate rejection against live Paperless (synthetic PDF; isolated SQLite and seeded Xero attachment confirmation).
 
-## Milestone 4c: Safe intake cleanup and completion
+## Milestone 4c: Best-effort intake cleanup and completion
 
-**Outcome:** An attached and archived receipt is safely removed from the intake and marked complete. Attachment, archive, and cleanup each have a durable completion record.
+**Outcome:** An attached and archived receipt is hash-verified and removed on a best-effort basis from the intake and marked complete. Attachment, archive, and cleanup each have a durable completion record.
 
 **Depends on:** Durable confirmation of both the Xero attachment from milestone 4a and Paperless consumption from milestone 4b.
 
+**Approved scope revision:** The operator explicitly accepted the residual local/WebDAV replacement race. Hash verification and local identity checks reduce risk but do not prevent replacement between verification and deletion; pinned Copyparty locks/conditional DELETE do not enforce this guarantee. The original absolute race-safety acceptance is withdrawn, not claimed achieved. See [cleanup operations and limits](docs/intake-cleanup.md).
+
+**Status:** Implemented with controlled lifecycle/source/UI tests and the combined local import → extraction → manual approval → Xero attachment → Paperless consumption → cleanup exercise (`paperless/TestCleanupFullWorkflow`). The combined test obtains both remote confirmations through real managers and controlled HTTP APIs, not seeded confirmation rows; it proves retention until consumption and no repeated uploads or cleanup after SQLite reopen. Dispatch rechecks eligibility, and attachment target locks reject review changes during verification. Live deployment validation remains outstanding. No real receipts deleted or infrastructure deployed.
+
 ### Work
 
-- Remove the intake file only after confirmed Xero attachment and Paperless archiving. Verify that the file still matches the processed hash and prevent deletion of a replacement file, including one replaced between verification and deletion.
-- Apply the cleanup safeguards to local and WebDAV input. Use controlled WebDAV tests while live access remains unavailable; retain files if safe deletion cannot be established.
+- Remove the intake file only after confirmed Xero attachment and Paperless archiving. Reread and verify the processed hash immediately before deletion; refuse observed mismatches. Accept and document the residual verification-to-deletion replacement race.
+- Apply the cleanup safeguards to local and WebDAV input. Use controlled WebDAV tests while live access remains unavailable; retain files when verification fails; block uncertain dispatched operations for manual recovery.
 - Record cleanup progress separately. Recover safely from failures or a restart around deletion without repeating confirmed attachment or archive operations.
 - Keep unmatched, pending, and ignored receipts in the intake, respecting the recorded retain-in-intake decision for ignored receipts.
 - Show pending cleanup, cleanup failures, and confirmed completion alongside the separate attachment and archive results. Mark a receipt complete only after all three steps finish.
@@ -251,15 +255,15 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 ### Done when
 
-- [ ] One receipt completes the full path from local folder import through manual approval, confirmed Xero attachment, confirmed Paperless archive, and intake cleanup.
-- [ ] Cleanup cannot remove an unarchived receipt or a replacement file, including a file replaced between verification and deletion.
-- [ ] Unmatched, pending, and ignored receipts remain in the intake.
-- [ ] A cleanup failure is visible and can be retried. A restart around deletion recovers without deleting a replacement file or repeating confirmed remote operations.
-- [ ] Controlled WebDAV tests cover the same cleanup safeguards; live deployment readiness remains subject to deferred validation.
-- [ ] The UI shows what was approved, attached, archived, and cleaned up, with unresolved failures kept visible.
-- [ ] Only receipts with all three steps finished are marked complete. The UI labels them as attached and archived, not reconciled.
+- [x] One synthetic receipt completes the full path from local folder import through extraction, manual approval, confirmed Xero attachment, confirmed Paperless archive, and intake cleanup (controlled APIs and real temporary SQLite/files).
+- [x] Cleanup requires independent durable remote confirmations and refuses observed changed/missing sources. Controlled tests explicitly demonstrate the accepted local/WebDAV replacement race; atomic replacement safety is not provided.
+- [x] Unmatched, pending, and ignored receipts remain in the intake.
+- [x] Verification failures are visible and retry next cycle. Restart or errors after dispatch block for manual recovery, without a second deletion or repeating confirmed remote operations.
+- [x] Controlled WebDAV tests cover the same cleanup safeguards; live deployment readiness remains subject to deferred validation.
+- [x] The UI shows what was approved, attached, archived, and cleaned up, with unresolved failures kept visible.
+- [x] Only receipts with all three steps finished are marked complete. The UI labels them as attached and archived, not reconciled.
 
-**This is the first usable end-to-end release.**
+**Controlled end-to-end acceptance passes under the approved best-effort scope. Live deployment readiness remains subject to deferred validation.**
 
 ## Milestone 5: Suggested matches and faster review
 

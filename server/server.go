@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/burmudar/go-receipt/db/oauth"
+	"github.com/burmudar/go-receipt/intake"
 	"github.com/burmudar/go-receipt/paperless"
 	"github.com/burmudar/go-receipt/receipt"
 	"github.com/burmudar/go-receipt/xero"
@@ -52,6 +53,7 @@ type Config struct {
 }
 
 type Server struct {
+	intake             intake.Store
 	cfg                Config
 	archive            *paperless.Manager
 	auth               *auth
@@ -236,6 +238,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if s.archive != nil {
 		start(s.archivePeriodically)
 	}
+	start(s.cleanupPeriodically)
 	if s.cfg.Discover != nil {
 		start(s.processPeriodically)
 	}
