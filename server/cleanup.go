@@ -12,7 +12,9 @@ func (s *Server) cleanupPeriodically(ctx context.Context) {
 		return
 	}
 	periodic(ctx, s.cfg.ReceiptInterval, func(ctx context.Context) {
-		if err := receipt.NewStore(s.cfg.DB).ProcessCleanup(ctx, source); err != nil && ctx.Err() == nil {
+		if err := s.intake.Cleanup(ctx, func() error {
+			return receipt.NewStore(s.cfg.DB).ProcessCleanup(ctx, source)
+		}); err != nil && ctx.Err() == nil {
 			s.cfg.Logger.Warn("cleanup worker failed", "error", err)
 		}
 	})

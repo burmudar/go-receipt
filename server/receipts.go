@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"net/http"
 	"time"
 
@@ -41,33 +42,35 @@ func (s *Server) processPeriodically(ctx context.Context) {
 				s.receiptWorkerError = ""
 			}
 		}()
-		files, err := s.cfg.Discover(ctx)
-		if err != nil {
-			hadError = true
-			if ctx.Err() == nil {
-				s.cfg.Logger.Warn("discover receipts", "error", err)
+		_ = s.intake.WithSnapshot(ctx, s.cfg.Discover, func(files iter.Seq2[receipt.File, error], err error) error {
+			if err != nil {
+				hadError = true
+				if ctx.Err() == nil {
+					s.cfg.Logger.Warn("discover receipts", "error", err)
+				}
+			} else {
+				for file, err := range files {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					if err == nil {
+						_, _, err = store.Import(ctx, file)
+					}
+					if err != nil {
+						hadError = true
+						s.cfg.Logger.Warn("import receipt", "source", file.Source, "error", err)
+					}
+				}
 			}
-		} else {
-			for file, err := range files {
-				if ctx.Err() != nil {
-					return
-				}
-				if err == nil {
-					_, _, err = store.Import(ctx, file)
-				}
-				if err != nil {
-					hadError = true
-					s.cfg.Logger.Warn("import receipt", "source", file.Source, "error", err)
-				}
+			if ctx.Err() != nil {
+				return ctx.Err()
 			}
-		}
-		if ctx.Err() != nil {
-			return
-		}
-		if _, err := store.Process(ctx, s.cfg.Source, s.cfg.Scanner, false); err != nil && ctx.Err() == nil {
-			hadError = true
-			s.cfg.Logger.Warn("process receipts", "error", err)
-		}
+			if _, err := store.Process(ctx, s.cfg.Source, s.cfg.Scanner, false); err != nil && ctx.Err() == nil {
+				hadError = true
+				s.cfg.Logger.Warn("process receipts", "error", err)
+			}
+			return nil
+		})
 	})
 }
 
