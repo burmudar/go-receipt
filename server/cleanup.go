@@ -12,7 +12,9 @@ func (s *Server) cleanupPeriodically(ctx context.Context) {
 		return
 	}
 	s.jobPeriodically(ctx, "intake-cleanup", s.cfg.ReceiptInterval, func(ctx context.Context) error {
-		return receipt.NewStore(s.cfg.DB).ProcessCleanup(ctx, source)
+		return s.intake.Cleanup(ctx, func() error {
+			return receipt.NewStore(s.cfg.DB).ProcessCleanup(ctx, source)
+		})
 	})
 }
 

@@ -3,6 +3,7 @@ package intake
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/burmudar/go-receipt/receipt"
 	"github.com/burmudar/go-receipt/remotefs"
+	"github.com/studio-b12/gowebdav"
 )
 
 // LocalFiles discovers and reads top-level regular files in a local intake folder.
@@ -125,9 +127,19 @@ func (d *WebDAVInput) Read(ctx context.Context, location string) ([]byte, error)
 // DiscoverSources discovers each configured intake independently; a failure in one
 // source does not prevent the other from being scanned.
 func DiscoverSources(ctx context.Context, folder string, webDAV *WebDAVInput) (iter.Seq2[receipt.File, error], error) {
+	// Capture both listings before reading any file. Only source references and
+	// metadata are retained, never the entire inbox's bytes.
+	var localFiles, remoteFiles iter.Seq2[receipt.File, error]
+	var localErr, remoteErr error
+	if folder != "" {
+		localFiles, localErr = LocalFiles(ctx, folder)
+	}
+	if webDAV != nil && ctx.Err() == nil {
+		remoteFiles, remoteErr = webDAV.Files(ctx)
+	}
 	return func(yield func(receipt.File, error) bool) {
 		if folder != "" {
-			files, err := LocalFiles(ctx, folder)
+			files, err := localFiles, localErr
 			if err != nil {
 				if !yield(receipt.File{}, err) {
 					return
@@ -141,7 +153,7 @@ func DiscoverSources(ctx context.Context, folder string, webDAV *WebDAVInput) (i
 			}
 		}
 		if webDAV != nil && ctx.Err() == nil {
-			files, err := webDAV.Files(ctx)
+			files, err := remoteFiles, remoteErr
 			if err != nil {
 				yield(receipt.File{}, err)
 				return
@@ -233,16 +245,20 @@ func webDAVFiles(ctx context.Context, endpoint, user, password, inbox string) (i
 		return nil, fmt.Errorf("%w: could not connect to WebDAV", receipt.ErrSourceUnavailable)
 	}
 
+	// Freeze this enumeration before downloading. Remote enumeration need not
+	// be atomic: concurrent appends are only guaranteed by a later scan.
+	var entries []os.FileInfo
+	for info, err := range dir.List(inbox) {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%w: could not list WebDAV inbox", receipt.ErrSourceUnavailable)
+		}
+		entries = append(entries, info)
+	}
 	return func(yield func(receipt.File, error) bool) {
-		for info, err := range dir.List(inbox) {
-			if err != nil {
-				if ctx.Err() != nil {
-					yield(receipt.File{}, ctx.Err())
-					return
-				}
-				yield(receipt.File{}, fmt.Errorf("%w: could not list WebDAV inbox", receipt.ErrSourceUnavailable))
-				return
-			}
+		for _, info := range entries {
 			if ctx.Err() != nil {
 				yield(receipt.File{}, ctx.Err())
 				return
@@ -264,6 +280,31 @@ func webDAVFiles(ctx context.Context, endpoint, user, password, inbox string) (i
 			relativeURL := &url.URL{Path: remotePath}
 			source := u.JoinPath(relativeURL.EscapedPath()).String()
 			file, err := dir.Download(remotePath)
+			recheckFailed := false
+			if gowebdav.IsErrNotFound(err) {
+				// External actors can remove a receipt after the directory was listed.
+				// Suppress a stale entry only if a fresh listing confirms it is gone.
+				stillListed := false
+				var listErr error
+				for current, e := range dir.List(inbox) {
+					if e != nil {
+						listErr = e
+						break
+					}
+					if current.Name() == info.Name() {
+						stillListed = true
+						break
+					}
+				}
+				if ctx.Err() != nil {
+					yield(receipt.File{}, ctx.Err())
+					return
+				}
+				if listErr == nil && !stillListed {
+					continue
+				}
+				recheckFailed = listErr != nil
+			}
 			r := receipt.File{
 				Name:   info.Name(),
 				Source: source,
@@ -272,8 +313,15 @@ func webDAVFiles(ctx context.Context, endpoint, user, password, inbox string) (i
 				r.Data = file.Data
 			} else if ctx.Err() != nil {
 				err = ctx.Err()
+			} else if recheckFailed {
+				err = fmt.Errorf("%w: could not recheck WebDAV inbox after missing receipt", receipt.ErrSourceUnavailable)
 			} else {
-				err = fmt.Errorf("%w: could not download WebDAV receipt", receipt.ErrSourceUnavailable)
+				var status gowebdav.StatusError
+				if errors.As(err, &status) {
+					err = fmt.Errorf("%w: could not download WebDAV receipt (HTTP %d)", receipt.ErrSourceUnavailable, status.Status)
+				} else {
+					err = fmt.Errorf("%w: could not download WebDAV receipt", receipt.ErrSourceUnavailable)
+				}
 			}
 
 			if !yield(r, err) {

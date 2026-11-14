@@ -3,7 +3,7 @@
 Milestone 4c uses **operator-approved best-effort deletion**, not atomic
 replacement-safe deletion. The operator explicitly accepted the residual race
 and revision of the original milestone guarantee. No custom upload service,
-custody system, locks or infrastructure change is introduced.
+custody system, remote locks or infrastructure change is introduced.
 
 ## Operation
 
@@ -37,6 +37,35 @@ conditional DELETE checks. Filename counters, ETags and advisory locks are not
 safety proofs. Controlled tests deliberately demonstrate this remaining race on
 both sources. Avoid replacing files while processing; this is an operational
 risk reduction, not an enforced guarantee.
+
+## In-memory intake snapshots
+
+One shared `intake.Store` coordinates the service's import and cleanup workers.
+Before listing, discovery waits for any already-started cleanup pass to finish.
+Local and WebDAV listings are captured before downloads; the snapshot retains
+references/metadata, not inbox bytes. Its protection lasts through import and
+automatic processing, and is released on success, errors, cancellation or panic.
+No mutex or SQLite transaction is held throughout those operations.
+
+Protection is deliberately global across configured sources: **all app cleanup
+waits while a snapshot is active**. A persisted local mount path may alias a
+WebDAV URL, so comparing raw references would be unsafe. This conservative policy
+needs no alias inference or basename matching. It does not translate old local
+paths into WebDAV URLs; unavailable local mounts remain unavailable and retryable.
+The trade-off is that unrelated cleanup also waits for the processing cycle.
+Queued cleanup gets a turn between snapshots.
+
+The receipt worker refreshes on its configured interval without overlapping
+cycles. Long scans, processing, cleanup and pauses can delay refresh; the interval
+is not an exact deadline. Remote enumeration need not be atomic. Appends omitted
+from a listing are discovered by a subsequent successful scan. External removals
+remain possible; WebDAV 404s are suppressed only when a fresh listing confirms
+absence. Other access failures remain errors.
+
+Snapshots are transient and rebuilt after restart. SQLite retains all import,
+review, attachment, archive and cleanup progress, including first-source-per-hash
+deduplication. This coordination requires one service instance per database; it
+does not protect against external deletion, replacement, or server inconsistency.
 
 ## Durable states and recovery
 
