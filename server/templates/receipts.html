@@ -1,0 +1,9 @@
+{{template "head" "wide"}}
+<p><a href="/">Status</a></p>
+<h2>Receipts</h2>
+{{if .}}
+<table><thead><tr><th>Receipt</th><th>Status</th><th>Error</th></tr></thead><tbody>
+{{range .}}<tr><td><a href="/receipts/{{.SHA256}}">{{.Name}}</a></td><td>{{.Status}}</td><td class="error">{{.LastError}}</td></tr>{{end}}
+</tbody></table>
+{{else}}<p>No receipts imported yet.</p>{{end}}
+{{template "foot"}}

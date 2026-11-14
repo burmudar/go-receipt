@@ -119,7 +119,7 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** A running service imports receipts, extracts their data, and refreshes bank transactions without CLI commands. The UI shows each receipt with its original document.
 
-**Status:** Not started.
+**Status:** Implemented for local input. Tests use real SQLite, a controlled scanner, and a controlled Xero server. Live OpenAI and background Xero validation remain unverified. WebDAV background import and preview are not configured; the scan CLI still supports WebDAV.
 
 ### Work
 
@@ -130,11 +130,11 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 ### Done when
 
-- [ ] New receipts in the configured local folder appear without running the scan CLI manually.
-- [ ] Bank transactions refresh in the background. The user does not need to select **Refresh transactions**.
-- [ ] The user can inspect a receipt: the original document beside its extracted data.
-- [ ] A failed extraction is visible in the UI with its error.
-- [ ] A restart does not repeat completed import or extraction.
+- [x] New receipts in the configured local folder appear without running the scan CLI manually (controlled scanner).
+- [x] Bank transactions refresh in the background. The user does not need to select **Refresh transactions** (controlled Xero server).
+- [x] The user can inspect a receipt: the original document beside its extracted data.
+- [x] A failed extraction is visible in the UI with its error.
+- [x] A restart does not repeat completed import or extraction.
 
 ## Milestone 3b: Manual review decisions
 

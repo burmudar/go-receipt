@@ -1,0 +1,9 @@
+{{template "head" "wide"}}
+<p><a href="/receipts">All receipts</a> · <a href="/">Status</a></p>
+<h2>{{.Name}}</h2>
+<div class="receipt-detail">
+<div><iframe title="Original receipt" sandbox src="/receipts/{{.SHA256}}/document"></iframe><p><a href="/receipts/{{.SHA256}}/document">Open original</a></p></div>
+<div><dl><dt>Status</dt><dd>{{.Status}}</dd>{{if .LastError}}<dt>Error</dt><dd class="error">{{.LastError}}</dd>{{end}}
+{{with .Analysis}}<dt>Merchant</dt><dd>{{.Merchant}}</dd><dt>Total</dt><dd>{{.Total}} {{.Currency}}</dd><dt>Date</dt><dd>{{.Date.Format "2006-01-02"}}</dd><dt>Extraction confidence</dt><dd>{{.Confidence}}</dd>{{end}}</dl></div>
+</div>
+{{template "foot"}}

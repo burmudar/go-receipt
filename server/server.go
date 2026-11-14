@@ -8,14 +8,17 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"iter"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/burmudar/go-receipt/db/oauth"
+	"github.com/burmudar/go-receipt/receipt"
 	"github.com/burmudar/go-receipt/xero"
 )
 
@@ -38,6 +41,12 @@ type Config struct {
 	// CheckInterval is the time between background connection checks. Each check refreshes the token.
 	CheckInterval time.Duration
 	Logger        *slog.Logger
+	// Receipt input is optional. When configured, both Source and Scanner are required.
+	Discover            func(context.Context) (iter.Seq2[receipt.File, error], error)
+	Source              receipt.Source
+	Scanner             receipt.Scanner
+	ReceiptInterval     time.Duration
+	TransactionInterval time.Duration
 }
 
 type Server struct {
@@ -85,6 +94,18 @@ func New(cfg Config) (*Server, error) {
 	if AuthRequired(cfg.Listen, cfg.PublicURL) && cfg.Password == "" {
 		return nil, fmt.Errorf("a password is required when the service is reachable from other devices")
 	}
+	if cfg.ReceiptInterval == 0 {
+		cfg.ReceiptInterval = time.Minute
+	}
+	if cfg.TransactionInterval == 0 {
+		cfg.TransactionInterval = 15 * time.Minute
+	}
+	if cfg.ReceiptInterval < 0 || cfg.TransactionInterval < 0 {
+		return nil, fmt.Errorf("worker intervals must be positive")
+	}
+	if cfg.Discover != nil && (cfg.Source == nil || cfg.Scanner == nil) {
+		return nil, fmt.Errorf("receipt source and scanner are required for background import")
+	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
@@ -128,6 +149,9 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("POST /login", s.login)
 	mux.Handle("POST /logout", s.protect(s.logout))
 	mux.Handle("GET /{$}", s.protect(s.status))
+	mux.Handle("GET /receipts", s.protect(s.receipts))
+	mux.Handle("GET /receipts/{hash}", s.protect(s.receiptDetail))
+	mux.Handle("GET /receipts/{hash}/document", s.protect(s.receiptDocument))
 	mux.Handle("POST /xero/connect", s.protectXero(s.connect))
 	mux.Handle("GET "+callbackPath, s.protectXero(s.callback))
 	mux.Handle("POST /xero/check", s.protectXero(s.check))
@@ -182,9 +206,15 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	workerCtx, stopWorker := context.WithCancel(ctx)
-	defer stopWorker()
+	var workers sync.WaitGroup
+	start := func(fn func(context.Context)) { workers.Add(1); go func() { defer workers.Done(); fn(workerCtx) }() }
+	defer func() { stopWorker(); workers.Wait() }()
 	if s.xero != nil {
-		go s.checkPeriodically(workerCtx)
+		start(s.checkPeriodically)
+		start(s.refreshPeriodically)
+	}
+	if s.cfg.Discover != nil {
+		start(s.processPeriodically)
 	}
 
 	errs := make(chan error, 1)
