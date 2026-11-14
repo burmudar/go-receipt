@@ -10,6 +10,7 @@ import (
 	"github.com/pressly/goose/v3"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -114,17 +115,15 @@ func TestCleanupLifecycle(t *testing.T) {
 			got := states[hash]
 			want := ""
 			switch scenario {
-			case "success":
+			case "success", "missing", "restart":
 				want = "confirmed"
-			case "mismatch", "missing":
+			case "mismatch", "uncertain":
 				want = "failed"
-			case "uncertain", "restart":
-				want = "uncertain"
 			}
 			if got.State != want {
 				t.Fatalf("state %q want %q", got.State, want)
 			}
-			if scenario == "success" {
+			if scenario == "success" || scenario == "missing" || scenario == "restart" {
 				if _, err = os.Stat(path); !os.IsNotExist(err) {
 					t.Fatal("not removed")
 				}
@@ -136,10 +135,13 @@ func TestCleanupLifecycle(t *testing.T) {
 					t.Fatal("source lost", err)
 				}
 			}
-			if s, ok := source.(*uncertainSource); ok && s.calls != 1 {
-				t.Fatal("uncertain deletion retried")
+			if s, ok := source.(*uncertainSource); ok && s.calls != 2 {
+				t.Fatal("failed deletion must be retried")
 			}
 			if scenario == "mismatch" {
+				if !strings.Contains(got.Error, "intake content changed") {
+					t.Fatalf("mismatch error must be visible: %q", got.Error)
+				}
 				os.WriteFile(path, []byte("original"), 0600)
 				if err = store.ProcessCleanup(ctx, source); err != nil {
 					t.Fatal(err)
