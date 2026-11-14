@@ -37,11 +37,11 @@ func (s *Store) Cleanups(ctx context.Context) (map[string]Cleanup, error) {
 
 // ProcessCleanup requires one serial cleanup worker per database, including
 // across service processes; it does not coordinate concurrent workers.
-// Pre-dispatch failures retry
-// next cycle; interrupted or unsuccessful dispatched operations require manual
-// recovery, even when the source is absent. Remote uploads are never invoked.
+// Failed or interrupted attempts retry on the next cycle. An accessible source
+// that is already absent completes cleanup; matching files are reverified before
+// every deletion attempt. Remote uploads are never invoked.
 func (s *Store) ProcessCleanup(ctx context.Context, source CleanupSource) error {
-	if _, err := s.db.ExecContext(ctx, `UPDATE receipt_cleanup SET state='uncertain',last_error='Deletion outcome uncertain; manual recovery required' WHERE state='deleting'`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `UPDATE receipt_cleanup SET state='failed',last_error='Interrupted cleanup; retrying when eligible' WHERE state='deleting'`); err != nil {
 		return err
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO receipt_cleanup(receipt_sha256)
@@ -57,7 +57,7 @@ func (s *Store) ProcessCleanup(ctx context.Context, source CleanupSource) error 
 	rows, err := s.db.QueryContext(ctx, `SELECT r.sha256,r.source FROM receipt r
  JOIN receipt_cleanup c ON c.receipt_sha256=r.sha256 JOIN receipt_review v ON v.receipt_sha256=r.sha256
  JOIN receipt_attachment a ON a.receipt_sha256=r.sha256 JOIN receipt_archive p ON p.receipt_sha256=r.sha256
- WHERE c.state IN ('pending','failed') AND r.status='extracted' AND v.state='approved'
+ WHERE c.state IN ('pending','failed','uncertain') AND r.status='extracted' AND v.state='approved'
  AND a.state='confirmed' AND p.state='confirmed' AND a.attachment_id!='' AND a.completed_at!=''
  AND p.document_id>0 AND p.completed_at!='' AND a.tenant_id=v.tenant_id AND a.transaction_id=v.bank_transaction_id`)
 	if err != nil {
@@ -91,7 +91,7 @@ func (s *Store) ProcessCleanup(ctx context.Context, source CleanupSource) error 
 			// Recheck authorization atomically with dispatch as verification may
 			// take time, and do not rely on the earlier candidate snapshot.
 			result, e := s.db.ExecContext(ctx, `UPDATE receipt_cleanup SET state='deleting',last_error=''
- WHERE receipt_sha256=? AND state IN ('pending','failed') AND EXISTS (
+ WHERE receipt_sha256=? AND state IN ('pending','failed','uncertain') AND EXISTS (
  SELECT 1 FROM receipt r JOIN receipt_review v ON v.receipt_sha256=r.sha256
  JOIN receipt_attachment a ON a.receipt_sha256=r.sha256 JOIN receipt_archive p ON p.receipt_sha256=r.sha256
  WHERE r.sha256=? AND r.source=? AND r.status='extracted' AND v.state='approved'
@@ -113,10 +113,9 @@ func (s *Store) ProcessCleanup(ctx context.Context, source CleanupSource) error 
 		state, message := "confirmed", ""
 		if attemptErr != nil || !dispatched {
 			state = "failed"
-			message = "Source verification or cleanup authorization failed; retained; retrying when eligible"
-			if dispatched {
-				state = "uncertain"
-				message = "Deletion outcome uncertain; manual recovery required"
+			message = "Cleanup authorization not confirmed; retrying when eligible"
+			if attemptErr != nil {
+				message = fmt.Sprintf("Cleanup failed; retrying when eligible: %v", attemptErr)
 			}
 		}
 		_, err = s.db.ExecContext(ctx, `UPDATE receipt_cleanup SET state=?,last_error=?,completed_at=CASE WHEN ?='confirmed' THEN strftime('%Y-%m-%dT%H:%M:%SZ','now') ELSE '' END WHERE receipt_sha256=?`, state, message, state, j.hash)

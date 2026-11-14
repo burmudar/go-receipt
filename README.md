@@ -56,7 +56,7 @@ Retries read the saved source locations and verify each file against its recorde
 
 - A SHA-256 content hash identifies each receipt across input sources. Importing identical bytes does not create another record or reset an existing result.
 - SQLite stores the first source location, not the original bytes. Keep intake files at their original paths and do not replace their contents during processing.
-- There is no separate staging directory. After durable Xero attachment and Paperless consumption confirmation, the service deletes hash-verified intake files on a best-effort basis. Replacement races remain possible; see the cleanup safety document.
+- There is no separate staging directory. After durable Xero attachment and Paperless consumption confirmation, the service deletes hash-verified intake files on a best-effort basis. Cleanup retries errors, and treats an absent file with an accessible parent as complete. Replacement races remain possible; see the cleanup safety document.
 - A changed source, or a missing local file, is recorded as a failure. An unconfigured or temporarily unavailable WebDAV source leaves a pending receipt pending. Restore the original before retrying; no extraction request is sent until the hash matches.
 - `pending` means the receipt record is saved but has no completed extraction.
 - `extracted` means valid receipt details are available, either from extraction or manual entry. The `analysis_source` field distinguishes them. It does not mean approved, matched, attached, or reconciled.

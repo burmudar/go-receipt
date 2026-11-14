@@ -14,7 +14,7 @@ import (
 )
 
 func TestWebDAVCleanup(t *testing.T) {
-	for _, scenario := range []string{"success", "mismatch", "missing", "redirect", "forbidden", "lost-response", "dispatch-failed", "outside", "replacement-race"} {
+	for _, scenario := range []string{"success", "mismatch", "missing", "missing-inbox", "read-forbidden", "redirect", "forbidden", "lost-response", "dispatch-failed", "outside", "replacement-race"} {
 		t.Run(scenario, func(t *testing.T) {
 			var mu sync.Mutex
 			data := "original"
@@ -29,8 +29,11 @@ func TestWebDAVCleanup(t *testing.T) {
 				switch r.Method {
 				case "GET":
 					switch scenario {
-					case "missing":
+					case "missing", "missing-inbox":
 						w.WriteHeader(404)
+						return
+					case "read-forbidden":
+						w.WriteHeader(http.StatusForbidden)
 						return
 					case "redirect":
 						w.Header().Set("Location", "/elsewhere")
@@ -40,6 +43,12 @@ func TestWebDAVCleanup(t *testing.T) {
 						data = "replacement"
 					}
 					fmt.Fprint(w, data)
+				case "HEAD":
+					if scenario == "missing-inbox" {
+						w.WriteHeader(http.StatusForbidden)
+						return
+					}
+					w.WriteHeader(http.StatusOK)
 				case "DELETE":
 					deletes++
 					if scenario == "forbidden" {
@@ -80,16 +89,19 @@ func TestWebDAVCleanup(t *testing.T) {
 			})
 			mu.Lock()
 			defer mu.Unlock()
-			success := scenario == "success" || scenario == "replacement-race"
+			success := scenario == "success" || scenario == "replacement-race" || scenario == "missing"
 			if (err == nil) != success {
 				t.Fatalf("error %v", err)
 			}
 			wantDeletes := 0
-			if success || scenario == "forbidden" || scenario == "lost-response" {
+			if scenario == "success" || scenario == "replacement-race" || scenario == "forbidden" || scenario == "lost-response" {
 				wantDeletes = 1
 			}
 			if deletes != wantDeletes {
 				t.Fatalf("deletes %d", deletes)
+			}
+			if scenario == "missing" && dispatches != 1 {
+				t.Fatal("missing file requires authorization recheck")
 			}
 			if scenario == "replacement-race" && data != "" {
 				t.Fatal("test must expose accepted race, not claim atomic safety")
@@ -97,6 +109,19 @@ func TestWebDAVCleanup(t *testing.T) {
 		})
 	}
 }
+func TestLocalMissingParentDoesNotConfirmCleanup(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "missing-mount")
+	location := filepath.Join(parent, "receipt.pdf")
+	dispatched := false
+	err := (LocalSource{}).Cleanup(context.Background(), location, "unused", func() error {
+		dispatched = true
+		return nil
+	})
+	if err == nil || dispatched {
+		t.Fatalf("missing parent must not confirm absence: err=%v dispatched=%v", err, dispatched)
+	}
+}
+
 func TestLocalCleanupSafeguards(t *testing.T) {
 	for _, scenario := range []string{"symlink", "directory", "dispatch-failed", "replacement-race"} {
 		t.Run(scenario, func(t *testing.T) {
