@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"net/http"
 	"time"
 
@@ -27,29 +28,30 @@ func periodic(ctx context.Context, interval time.Duration, work func(context.Con
 
 func (s *Server) processPeriodically(ctx context.Context) {
 	s.jobPeriodically(ctx, "receipt-import", s.cfg.ReceiptInterval, func(ctx context.Context) error {
-		store := receipt.NewStore(s.cfg.DB)
-		var failures []error
-		files, err := s.cfg.Discover(ctx)
-		if err != nil {
-			failures = append(failures, err)
-		} else {
-			for file, err := range files {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if err == nil {
-					_, _, err = store.Import(ctx, file)
-				}
-				if err != nil {
-					failures = append(failures, err)
+		return s.intake.WithSnapshot(ctx, s.cfg.Discover, func(files iter.Seq2[receipt.File, error], err error) error {
+			store := receipt.NewStore(s.cfg.DB)
+			var failures []error
+			if err != nil {
+				failures = append(failures, err)
+			} else {
+				for file, err := range files {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					if err == nil {
+						_, _, err = store.Import(ctx, file)
+					}
+					if err != nil {
+						failures = append(failures, err)
+					}
 				}
 			}
-		}
-		_, err = store.ProcessAutomatic(ctx, s.cfg.Source, s.cfg.Scanner)
-		if err != nil {
-			failures = append(failures, err)
-		}
-		return errors.Join(failures...)
+			_, err = store.ProcessAutomatic(ctx, s.cfg.Source, s.cfg.Scanner)
+			if err != nil {
+				failures = append(failures, err)
+			}
+			return errors.Join(failures...)
+		})
 	})
 }
 
