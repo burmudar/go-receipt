@@ -27,27 +27,12 @@ func periodic(ctx context.Context, interval time.Duration, work func(context.Con
 }
 
 func (s *Server) processPeriodically(ctx context.Context) {
-	periodic(ctx, s.cfg.ReceiptInterval, func(ctx context.Context) {
-		store := receipt.NewStore(s.cfg.DB)
-		hadError := false
-		defer func() {
-			if ctx.Err() != nil {
-				return
-			}
-			s.workerMu.Lock()
-			defer s.workerMu.Unlock()
-			if hadError {
-				s.receiptWorkerError = "Receipt import or processing encountered errors. Check the service logs and receipt list."
-			} else {
-				s.receiptWorkerError = ""
-			}
-		}()
-		_ = s.intake.WithSnapshot(ctx, s.cfg.Discover, func(files iter.Seq2[receipt.File, error], err error) error {
+	s.jobPeriodically(ctx, "receipt-import", s.cfg.ReceiptInterval, func(ctx context.Context) error {
+		return s.intake.WithSnapshot(ctx, s.cfg.Discover, func(files iter.Seq2[receipt.File, error], err error) error {
+			store := receipt.NewStore(s.cfg.DB)
+			var failures []error
 			if err != nil {
-				hadError = true
-				if ctx.Err() == nil {
-					s.cfg.Logger.Warn("discover receipts", "error", err)
-				}
+				failures = append(failures, err)
 			} else {
 				for file, err := range files {
 					if ctx.Err() != nil {
@@ -57,38 +42,33 @@ func (s *Server) processPeriodically(ctx context.Context) {
 						_, _, err = store.Import(ctx, file)
 					}
 					if err != nil {
-						hadError = true
-						s.cfg.Logger.Warn("import receipt", "source", file.Source, "error", err)
+						failures = append(failures, err)
 					}
 				}
 			}
-			if ctx.Err() != nil {
-				return ctx.Err()
+			_, err = store.ProcessAutomatic(ctx, s.cfg.Source, s.cfg.Scanner)
+			if err != nil {
+				failures = append(failures, err)
 			}
-			if _, err := store.Process(ctx, s.cfg.Source, s.cfg.Scanner, false); err != nil && ctx.Err() == nil {
-				hadError = true
-				s.cfg.Logger.Warn("process receipts", "error", err)
-			}
-			return nil
+			return errors.Join(failures...)
 		})
 	})
 }
 
 func (s *Server) refreshPeriodically(ctx context.Context) {
-	periodic(ctx, s.cfg.TransactionInterval, func(ctx context.Context) {
+	s.jobPeriodically(ctx, "xero-transactions", s.cfg.TransactionInterval, func(ctx context.Context) error {
 		connection, err := s.xero.Connection(ctx)
 		if err != nil {
-			if ctx.Err() == nil {
-				s.cfg.Logger.Warn("read xero connection", "error", err)
-			}
-			return
+			return err
 		}
 		if connection.Status != xero.StatusConnected {
-			return
+			return fmt.Errorf("Xero is not connected")
 		}
-		if err := s.xero.RefreshBankTransactions(ctx); err != nil && err != xero.ErrRefreshRunning && ctx.Err() == nil {
-			s.cfg.Logger.Warn("background xero transaction refresh failed", "error", err)
+		err = s.xero.RefreshBankTransactions(ctx)
+		if errors.Is(err, xero.ErrRefreshRunning) {
+			return nil
 		}
+		return err
 	})
 }
 

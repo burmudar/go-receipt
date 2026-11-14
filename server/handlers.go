@@ -39,19 +39,23 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 type statusPage struct {
-	SetupError         string
-	RedirectURL        string
-	Connection         xero.Connection
-	Transactions       xero.BankTransactionSummary
-	Auth               bool
-	ReceiptWorkerError string
+	Paused       bool
+	Workers      []workerHealth
+	SetupError   string
+	RedirectURL  string
+	Connection   xero.Connection
+	Transactions xero.BankTransactionSummary
+	Auth         bool
 }
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	page := statusPage{RedirectURL: RedirectURL(s.cfg.PublicURL), Auth: s.auth != nil}
-	s.workerMu.RLock()
-	page.ReceiptWorkerError = s.receiptWorkerError
-	s.workerMu.RUnlock()
+	var err error
+	page.Paused, page.Workers, err = s.workerStatus(r.Context())
+	if err != nil {
+		s.fail(w, 500, err)
+		return
+	}
 	if s.xero == nil {
 		page.SetupError = s.setupErr.Error()
 		s.render(w, http.StatusOK, "status.html", page)

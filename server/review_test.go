@@ -273,7 +273,7 @@ func TestManualReviewWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 4 || events[0].Action != "approved" || events[0].Analysis.Total != "12.35" {
+	if len(events) != 4 || events[0].Action != "approved" || events[0].Analysis.Total != "12.35" || events[0].ApprovalMethod != "manual" || events[0].ApprovalPolicy != "manual-v1" {
 		b, _ := json.Marshal(events)
 		t.Fatalf("history: %s", b)
 	}

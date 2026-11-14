@@ -6,10 +6,8 @@ import (
 )
 
 func (s *Server) attachPeriodically(ctx context.Context) {
-	periodic(ctx, s.cfg.ReceiptInterval, func(ctx context.Context) {
-		if err := s.xero.ProcessAttachments(ctx, s.cfg.Source); err != nil && ctx.Err() == nil {
-			s.cfg.Logger.Warn("attach receipts", "error", err)
-		}
+	s.jobPeriodically(ctx, "xero-attachments", s.cfg.ReceiptInterval, func(ctx context.Context) error {
+		return s.xero.ProcessAttachments(ctx, s.cfg.Source)
 	})
 }
 

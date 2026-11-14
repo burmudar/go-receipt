@@ -1,6 +1,14 @@
 {{template "head"}}
-<p><a href="/receipts">View receipts</a></p>
-{{if .ReceiptWorkerError}}<p class="error">{{.ReceiptWorkerError}}</p>{{end}}
+<p><a href="/receipts">View receipts and unresolved failures</a></p>
+<h2>Automatic processing</h2>
+<p>Approval remains manual. Automatic approval is unavailable pending policy validation.</p>
+<p>{{if .Paused}}Paused{{else}}Enabled{{end}}. Pause stops new background cycles, not in-flight work or explicit manual actions.</p>
+<form method="post" action="/processing">{{if .Paused}}<button name="action" value="resume">Resume processing</button>{{else}}<button name="action" value="pause">Pause processing</button>{{end}}</form>
+<h3>Worker health</h3>
+<p>Times are UTC. Receipt-import success means discovery and processing completed, including cycles with no new files. Retry delay is capped at one hour. Workers appear after their first cycle.</p>
+<table><tr><th>Worker</th><th>State</th><th>Last successful cycle</th><th>Next eligible cycle</th><th>Consecutive failures</th></tr>
+{{range .Workers}}<tr><td>{{.Name}}</td><td>{{.State}} {{.LastError}}</td><td>{{.LastSuccess}}</td><td>{{.NextRun}}</td><td>{{.Failures}}</td></tr>{{end}}</table>
+<p><a href="/receipts?state=failed">Failed extractions</a> · <a href="/receipts?state=needs_review">Needs review</a> · <a href="/receipts?archive=failed">Failed archives</a>. See all receipts for uncertain uploads and cleanup failures.</p>
 <h2>Xero connection</h2>
 {{if .SetupError}}
 <p class="error">{{.SetupError}}</p>

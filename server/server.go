@@ -27,8 +27,10 @@ import (
 const callbackPath = "/xero/callback"
 
 type Config struct {
-	DB        *sql.DB
-	Paperless paperless.Config
+	// JobTimeout bounds a complete background cycle, including source reads.
+	JobTimeout time.Duration
+	DB         *sql.DB
+	Paperless  paperless.Config
 	// Listen is the TCP address for the HTTP server, for example 127.0.0.1:11211.
 	Listen string
 	// PublicURL is the address that browsers use, for example the Caddy HTTPS address.
@@ -53,16 +55,14 @@ type Config struct {
 }
 
 type Server struct {
-	intake             intake.Store
-	cfg                Config
-	archive            *paperless.Manager
-	auth               *auth
-	xero               *xero.Manager
-	setupErr           error
-	pages              *template.Template
-	handler            http.Handler
-	workerMu           sync.RWMutex
-	receiptWorkerError string
+	intake   intake.Store
+	cfg      Config
+	archive  *paperless.Manager
+	auth     *auth
+	xero     *xero.Manager
+	setupErr error
+	pages    *template.Template
+	handler  http.Handler
 }
 
 //go:embed templates/*.html
@@ -107,6 +107,12 @@ func New(cfg Config) (*Server, error) {
 	if AuthRequired(cfg.Listen, cfg.PublicURL) && cfg.Password == "" {
 		return nil, fmt.Errorf("a password is required when the service is reachable from other devices")
 	}
+	if cfg.JobTimeout == 0 {
+		cfg.JobTimeout = 5 * time.Minute
+	}
+	if cfg.JobTimeout < 0 {
+		return nil, fmt.Errorf("job timeout must be positive")
+	}
 	if cfg.ReceiptInterval == 0 {
 		cfg.ReceiptInterval = time.Minute
 	}
@@ -124,6 +130,12 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.RequestTimeout <= 0 || cfg.XeroTimeout <= 0 || cfg.CheckInterval <= 0 {
 		return nil, fmt.Errorf("timeouts and the check interval must be positive")
+	}
+
+	// A previous process may have stopped between dispatch and health recording.
+	// Domain managers, not this scheduler, decide whether a side effect can repeat.
+	if _, err := cfg.DB.Exec(`UPDATE service_worker SET state='interrupted',next_at=0,last_error='Previous cycle interrupted; recovery pending' WHERE state='running'`); err != nil {
+		return nil, fmt.Errorf("load worker state (apply migrations first): %w", err)
 	}
 
 	pages, err := template.ParseFS(templates, "templates/*.html")
@@ -168,6 +180,7 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("POST /login", s.login)
 	mux.Handle("POST /logout", s.protect(s.logout))
 	mux.Handle("GET /{$}", s.protect(s.status))
+	mux.Handle("POST /processing", s.protect(s.processingControl))
 	mux.Handle("GET /receipts", s.protect(s.receipts))
 	mux.Handle("GET /receipts/{hash}", s.protect(s.receiptDetail))
 	mux.Handle("GET /receipts/{hash}/document", s.protect(s.receiptDocument))
@@ -219,6 +232,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	srv := &http.Server{
 		Handler:           s,
+		BaseContext:       func(net.Listener) context.Context { return ctx },
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       s.cfg.RequestTimeout,
 		WriteTimeout:      s.cfg.RequestTimeout,
@@ -258,6 +272,7 @@ func (s *Server) Run(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
+		_ = srv.Close()
 		return err
 	}
 	if err := <-errs; !errors.Is(err, http.ErrServerClosed) {
@@ -268,22 +283,16 @@ func (s *Server) Run(ctx context.Context) error {
 
 // checkPeriodically keeps the refresh token in use. An unused Xero refresh token expires after 60 days.
 func (s *Server) checkPeriodically(ctx context.Context) {
-	ticker := time.NewTicker(s.cfg.CheckInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
+	s.jobPeriodically(ctx, "xero-connection", s.cfg.CheckInterval, func(ctx context.Context) error {
 		connection, err := s.xero.Connection(ctx)
-		if err != nil || connection.Status != xero.StatusConnected {
-			continue
+		if err != nil {
+			return err
 		}
-		if err := s.xero.Check(ctx); err != nil && ctx.Err() == nil {
-			s.cfg.Logger.Warn("xero connection check failed", "error", err)
+		if connection.Status != xero.StatusConnected {
+			return fmt.Errorf("Xero is not connected")
 		}
-	}
+		return s.xero.Check(ctx)
+	})
 }
 
 func (s *Server) protect(next http.HandlerFunc) http.Handler {

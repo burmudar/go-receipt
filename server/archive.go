@@ -34,10 +34,12 @@ func (item receiptItem) ArchiveStatus() string {
 }
 
 func (s *Server) archivePeriodically(ctx context.Context) {
-	periodic(ctx, s.cfg.ReceiptInterval, func(ctx context.Context) {
-		if err := s.archive.Process(ctx, s.cfg.Source); err != nil && ctx.Err() == nil {
+	s.jobPeriodically(ctx, "paperless-archive", s.cfg.ReceiptInterval, func(ctx context.Context) error {
+		err := s.archive.Process(ctx, s.cfg.Source)
+		if err != nil && ctx.Err() == nil {
 			s.logArchiveError(err)
 		}
+		return err
 	})
 }
 
