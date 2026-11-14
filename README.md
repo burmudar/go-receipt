@@ -1,6 +1,6 @@
 # go-receipt
 
-Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command imports local receipts in the background, provides receipt pages, and connects Xero through the browser. Attachment upload, Paperless archiving, intake cleanup, and the review UI are planned in [milestone.md](milestone.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
+Read receipts from WebDAV or a local directory, extract structured data with OpenAI, and preserve the results in SQLite. Original files remain in the intake during processing. The `serve` command imports local receipts in the background, provides receipt pages, and connects Xero through the browser. Manual review decisions are available in the receipt pages. Attachment upload, Paperless archiving, and intake cleanup are planned in [milestone.md](milestone.md). Xero API findings are in [docs/xero-api.md](docs/xero-api.md).
 
 ## Setup
 
@@ -136,6 +136,12 @@ The service checks the connection every 24 hours. Each check refreshes the token
 The service refreshes bank transactions in the background at startup and every 15 minutes while connected; use `--transaction-interval` to change the interval. **Refresh transactions** also starts a manual refresh. The first refresh fetches all transactions. Each later refresh fetches only the transactions that changed since the last complete refresh. The service stores `SPEND` and `RECEIVE` transactions, including deleted and voided ones. Only reconciled, authorised transactions can receive a receipt. Select **View transactions** to see the latest 500.
 
 A refresh saves each page when it arrives. If a refresh fails, the status page shows the error, and the next refresh starts again from the last complete refresh. A short rate-limit response delays the refresh. The daily limit stops it.
+
+### Manual review
+
+Open **View receipts** to filter by processing and review status. For an extracted receipt, correct its merchant, amount, currency, or date without overwriting the original extraction. Search stored transactions by contact, reference, account, date, amount, or ID, then approve or reject a selected transaction. Approval is limited to reconciled, authorised transactions in the connected organisation; it does not upload an attachment or change reconciliation in Xero. Only the latest 100 search results are shown; narrow the search to find older transactions.
+
+A receipt can be marked unmatched while it waits for reconciliation in Xero, or ignored. **Ignored receipts remain in the intake**; the decision and retention choice are recorded in the review history. No files are archived or deleted by this milestone. Return an approval to review before editing it or disconnecting the Xero organisation. Corrections and decisions have a timestamped history, including the data and transaction reviewed. Attachment, archive, and cleanup remain pending until those operations are implemented.
 
 ### Home-network access through Caddy
 

@@ -1,9 +1,11 @@
 {{template "head" "wide"}}
 <p><a href="/">Status</a></p>
 <h2>Receipts</h2>
-{{if .}}
-<table><thead><tr><th>Receipt</th><th>Status</th><th>Error</th></tr></thead><tbody>
-{{range .}}<tr><td><a href="/receipts/{{.SHA256}}">{{.Name}}</a></td><td>{{.Status}}</td><td class="error">{{.LastError}}</td></tr>{{end}}
+<nav>Show: <a href="/receipts">All</a> · <a href="?state=pending">Processing</a> · <a href="?state=needs_review">Needs review</a> · <a href="?state=unmatched">Unmatched</a> · <a href="?state=approved">Approved</a> · <a href="?state=rejected">Rejected</a> · <a href="?state=ignored">Ignored</a> · <a href="?state=failed">Failed</a> · <a href="?state=completed">Completed</a></nav>
+{{if .Filter}}<p>Showing: {{.Filter}}</p>{{end}}
+{{if .Items}}
+<table><thead><tr><th>Receipt</th><th>Processing</th><th>Review</th><th>Error</th></tr></thead><tbody>
+{{range .Items}}<tr><td><a href="/receipts/{{.SHA256}}">{{.Name}}</a></td><td>{{.Status}}</td><td>{{.State}}{{if eq .State "approved"}} — attachment pending{{end}}</td><td class="error">{{.LastError}}</td></tr>{{end}}
 </tbody></table>
-{{else}}<p>No receipts imported yet.</p>{{end}}
+{{else}}<p>No receipts in this view.</p>{{end}}
 {{template "foot"}}
