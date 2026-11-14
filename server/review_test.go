@@ -184,6 +184,17 @@ func TestManualReviewWorkflow(t *testing.T) {
 	decision := func(action, target string, want int) {
 		post(base+"/decision", url.Values{"action": {action}, "transaction": {target}}, want)
 	}
+	initial := request("GET", base, nil, "")
+	page := initial.Body.String()
+	if initial.Code != 200 || !strings.Contains(page, "Approve suggested match") || !strings.Contains(page, "Merchant matches contact") || !strings.Contains(page, "Same date") || strings.Contains(page, "value=\"foreign\"") {
+		t.Fatalf("suggestions: %d %s", initial.Code, page)
+	}
+	if strings.Index(page, `value="good"`) >= strings.Index(page, `value="percent"`) {
+		t.Fatalf("exact merchant should rank ahead of another same-amount candidate: %s", page)
+	}
+	if reviews, err := store.Reviews(ctx); err != nil || reviews[hash].State == "approved" {
+		t.Fatalf("suggestions must not approve automatically: %+v %v", reviews[hash], err)
+	}
 	correction := url.Values{"merchant": {"Corrected"}, "total": {"12.35"}, "currency": {"USD"}, "date": {"2025-01-03"}}
 	post(base+"/correction", correction, http.StatusSeeOther)
 	records, err := store.List(ctx)
@@ -199,7 +210,7 @@ func TestManualReviewWorkflow(t *testing.T) {
 		decision("approved", id, http.StatusConflict)
 	}
 	w := request("GET", base+"?q=Shop", nil, "")
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "Corrected") || !strings.Contains(w.Body.String(), "Approve selected") || !strings.Contains(w.Body.String(), "Review history") || strings.Contains(w.Body.String(), "value=\"foreign\"") {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Corrected") || !strings.Contains(w.Body.String(), "Approve selected") || !strings.Contains(w.Body.String(), "No suitable suggestions") || !strings.Contains(w.Body.String(), "Review history") || strings.Contains(w.Body.String(), "value=\"foreign\"") {
 		t.Fatalf("search/detail: %d %s", w.Code, w.Body.String())
 	}
 	w = request("GET", base+"?q=%25", nil, "")
@@ -209,6 +220,29 @@ func TestManualReviewWorkflow(t *testing.T) {
 	decision("rejected", "good", http.StatusSeeOther)
 	decision("unmatched", "", http.StatusSeeOther)
 	decision("approved", "good", http.StatusSeeOther)
+	secondData := []byte("%PDF-1.4\nsecond")
+	secondPath := filepath.Join(dir, "second.pdf")
+	if err := os.WriteFile(secondPath, secondData, 0600); err != nil {
+		t.Fatal(err)
+	}
+	secondHash, _, err := store.Import(ctx, receipt.File{Name: "second.pdf", Source: secondPath, Data: secondData})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Process(ctx, intake.LocalSource{}, &testScanner{}, false); err != nil {
+		t.Fatal(err)
+	}
+	secondBase := "/receipts/" + secondHash
+	secondPage := request("GET", secondBase, nil, "").Body.String()
+	if !strings.Contains(secondPage, "Approve suggested match") || !strings.Contains(secondPage, `href="`+base+`"`) {
+		t.Fatalf("existing link missing: %s", secondPage)
+	}
+	post(secondBase+"/decision", url.Values{"action": {"approved"}, "transaction": {"good"}}, http.StatusSeeOther)
+	secondHistory, err := store.ReviewHistory(ctx, secondHash)
+	if err != nil || len(secondHistory) != 1 || secondHistory[0].Action != "approved" || secondHistory[0].TransactionID != "good" {
+		t.Fatalf("suggestion approval history: %+v %v", secondHistory, err)
+	}
+	post(secondBase+"/decision", url.Values{"action": {"needs_review"}}, http.StatusSeeOther)
 	post(base+"/correction", correction, http.StatusConflict)
 	post("/xero/disconnect", url.Values{}, http.StatusConflict)
 	if w := request("GET", "/receipts?state=approved", nil, ""); !strings.Contains(w.Body.String(), "attachment pending") {
