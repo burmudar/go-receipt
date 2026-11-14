@@ -222,6 +222,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if s.xero != nil {
 		start(s.checkPeriodically)
 		start(s.refreshPeriodically)
+		start(s.attachPeriodically)
 	}
 	if s.cfg.Discover != nil {
 		start(s.processPeriodically)

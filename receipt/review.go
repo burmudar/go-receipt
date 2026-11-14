@@ -134,6 +134,13 @@ func (s *Store) Decide(ctx context.Context, hash, action, target string) error {
 	if err != nil {
 		return err
 	}
+	var locked bool
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT locked FROM receipt_attachment WHERE receipt_sha256=?),0)`, hash).Scan(&locked); err != nil {
+		return err
+	}
+	if locked {
+		return fmt.Errorf("%w: attachment started or confirmed; target changes require manual follow-up in Xero", ErrReviewConflict)
+	}
 	if status != Extracted {
 		return fmt.Errorf("%w: extraction must be complete before review", ErrReviewConflict)
 	}
@@ -168,6 +175,11 @@ func (s *Store) Decide(ctx context.Context, hash, action, target string) error {
 	_, err = tx.ExecContext(ctx, `INSERT INTO receipt_review(receipt_sha256,state,tenant_id,bank_transaction_id) VALUES (?,?,?,?) ON CONFLICT(receipt_sha256) DO UPDATE SET state=excluded.state,tenant_id=excluded.tenant_id,bank_transaction_id=excluded.bank_transaction_id,updated_at=CURRENT_TIMESTAMP`, hash, action, tenant, transaction)
 	if err != nil {
 		return err
+	}
+	if action != "approved" {
+		if _, err = tx.ExecContext(ctx, `UPDATE receipt_attachment SET state='awaiting_approval' WHERE receipt_sha256=? AND locked=0`, hash); err != nil {
+			return err
+		}
 	}
 	retention := ""
 	if action == "ignored" {

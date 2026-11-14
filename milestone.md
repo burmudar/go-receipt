@@ -185,6 +185,8 @@ Start with manual approval for every attachment. Add automatic approval only aft
 
 **Outcome:** A manually approved receipt is safely attached to the selected Xero transaction, with a durable attachment confirmation. Intake files remain untouched; Paperless archiving and cleanup are not part of this milestone.
 
+**Status:** Implemented with real SQLite and controlled Xero responses. Live Xero attachment validation remains outstanding. The application enforces a conservative 10,000,000-byte cap supported by integration-provider documentation; direct Xero bank-transaction limit confirmation is still outstanding. No verified organisation-safe browser deep link is available; the UI displays the target ID. The migration returns old approvals to review because they lack an approval-time target snapshot. Once dispatched, a target stays locked even on an uncertain result; additional uploads require manual follow-up, not silent retargeting. `go test ./...`, `go vet ./...`, and `go test -race ./xero ./server` pass. Tests cover local import/extraction/approval, remote confirmation, retry keys, uncertain responses and Manager restart, changed targets, source failures, size rejection, collisions, and UI progress.
+
 ### Work
 
 - Read the original from the intake and verify its hash before uploading to the approved Xero target.
@@ -199,12 +201,12 @@ Start with manual approval for every attachment. Add automatic approval only aft
 ### Done when
 
 - [ ] One receipt goes from local folder import through manual approval to a confirmed attachment visible on the intended Xero record.
-- [ ] Missing or changed originals and oversized receipts are rejected before upload.
-- [ ] A retry or restart, including after an uncertain upload response, does not create a duplicate attachment or overwrite another receipt's attachment.
-- [ ] A target that is deleted, voided, otherwise ineligible, or changed after approval is not uploaded to. The receipt returns to review with the reason.
-- [ ] Changing an approved target cannot silently trigger an additional upload.
-- [ ] The UI distinguishes approval, pending upload, upload failure, and confirmed attachment. Attached receipts remain incomplete and are not labelled reconciled.
-- [ ] Intake files remain intact. No Paperless upload or intake cleanup is performed.
+- [x] Missing or changed originals and oversized receipts are rejected before upload (controlled tests, conservative application cap).
+- [x] A retry or restart, including after an uncertain upload response, does not create a duplicate attachment or overwrite another receipt's attachment (controlled tests).
+- [x] A target that is deleted, voided, otherwise ineligible, or changed after approval is not uploaded to. The receipt returns to review with the reason (controlled tests; previously dispatched uncertain uploads remain locked for manual investigation).
+- [x] Changing an approved target cannot silently trigger an additional upload.
+- [x] The UI distinguishes approval, pending upload, upload failure, and confirmed attachment. Attached receipts remain incomplete and are not labelled reconciled.
+- [x] Intake files remain intact. No Paperless upload or intake cleanup is performed.
 
 ## Milestone 4b: Paperless archive
 
